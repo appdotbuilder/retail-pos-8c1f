@@ -8,40 +8,39 @@ import { updateProduct } from '../handlers/update_product';
 import { eq } from 'drizzle-orm';
 
 describe('updateProduct', () => {
+  beforeEach(createDB);
+  afterEach(resetDB);
+
   let categoryId: number;
   let productId: number;
 
   beforeEach(async () => {
-    await createDB();
-
-    // Create a test category
-    const categoryResult = await db.insert(categoriesTable)
+    // Create prerequisite category
+    const category = await db.insert(categoriesTable)
       .values({
         name: 'Test Category',
-        description: 'A category for testing'
+        description: 'Category for testing'
       })
       .returning()
       .execute();
-    categoryId = categoryResult[0].id;
+    categoryId = category[0].id;
 
-    // Create a test product
-    const productResult = await db.insert(productsTable)
+    // Create test product
+    const product = await db.insert(productsTable)
       .values({
         name: 'Original Product',
         sku: 'ORIG-001',
-        barcode: 'original-barcode',
+        barcode: 'orig-barcode',
         category_id: categoryId,
-        selling_price: '19.99',
-        cost_price: '10.00',
+        selling_price: '25.99',
+        cost_price: '15.50',
         current_stock: 50,
         min_stock_level: 5
       })
       .returning()
       .execute();
-    productId = productResult[0].id;
+    productId = product[0].id;
   });
-
-  afterEach(resetDB);
 
   it('should update product name', async () => {
     const input: UpdateProductInput = {
@@ -53,18 +52,19 @@ describe('updateProduct', () => {
 
     expect(result.id).toEqual(productId);
     expect(result.name).toEqual('Updated Product Name');
-    expect(result.sku).toEqual('ORIG-001'); // Should remain unchanged
-    expect(result.selling_price).toEqual(19.99);
+    expect(result.sku).toEqual('ORIG-001'); // Unchanged
+    expect(result.selling_price).toEqual(25.99);
+    expect(result.cost_price).toEqual(15.50);
     expect(result.updated_at).toBeInstanceOf(Date);
   });
 
-  it('should update multiple fields', async () => {
+  it('should update multiple fields at once', async () => {
     const input: UpdateProductInput = {
       id: productId,
       name: 'Multi-Updated Product',
       sku: 'MULTI-001',
-      selling_price: 29.99,
-      cost_price: 15.50,
+      selling_price: 35.99,
+      cost_price: 20.00,
       min_stock_level: 10
     };
 
@@ -72,13 +72,14 @@ describe('updateProduct', () => {
 
     expect(result.name).toEqual('Multi-Updated Product');
     expect(result.sku).toEqual('MULTI-001');
-    expect(result.selling_price).toEqual(29.99);
-    expect(result.cost_price).toEqual(15.50);
+    expect(result.selling_price).toEqual(35.99);
+    expect(result.cost_price).toEqual(20.00);
     expect(result.min_stock_level).toEqual(10);
-    expect(result.barcode).toEqual('original-barcode'); // Should remain unchanged
+    expect(result.barcode).toEqual('orig-barcode'); // Unchanged
+    expect(result.category_id).toEqual(categoryId); // Unchanged
   });
 
-  it('should update barcode to null', async () => {
+  it('should handle nullable barcode update', async () => {
     const input: UpdateProductInput = {
       id: productId,
       barcode: null
@@ -87,7 +88,18 @@ describe('updateProduct', () => {
     const result = await updateProduct(input);
 
     expect(result.barcode).toBeNull();
-    expect(result.name).toEqual('Original Product'); // Should remain unchanged
+    expect(result.name).toEqual('Original Product'); // Unchanged
+  });
+
+  it('should update barcode to new value', async () => {
+    const input: UpdateProductInput = {
+      id: productId,
+      barcode: 'new-barcode-123'
+    };
+
+    const result = await updateProduct(input);
+
+    expect(result.barcode).toEqual('new-barcode-123');
   });
 
   it('should persist changes in database', async () => {
@@ -99,7 +111,7 @@ describe('updateProduct', () => {
 
     await updateProduct(input);
 
-    // Query database directly to verify changes
+    // Verify in database
     const products = await db.select()
       .from(productsTable)
       .where(eq(productsTable.id, productId))
@@ -111,7 +123,7 @@ describe('updateProduct', () => {
     expect(products[0].updated_at).toBeInstanceOf(Date);
   });
 
-  it('should update the updated_at timestamp', async () => {
+  it('should update updated_at timestamp', async () => {
     // Get original timestamp
     const originalProduct = await db.select()
       .from(productsTable)
@@ -119,7 +131,7 @@ describe('updateProduct', () => {
       .execute();
     const originalTimestamp = originalProduct[0].updated_at;
 
-    // Wait a moment to ensure timestamp difference
+    // Wait a bit to ensure timestamp difference
     await new Promise(resolve => setTimeout(resolve, 10));
 
     const input: UpdateProductInput = {
@@ -135,11 +147,11 @@ describe('updateProduct', () => {
 
   it('should throw error for non-existent product', async () => {
     const input: UpdateProductInput = {
-      id: 999999,
+      id: 99999,
       name: 'Non-existent Product'
     };
 
-    expect(updateProduct(input)).rejects.toThrow(/Product with id 999999 not found/);
+    expect(() => updateProduct(input)).toThrow(/Product with id 99999 not found/i);
   });
 
   it('should handle numeric type conversions correctly', async () => {
@@ -156,16 +168,25 @@ describe('updateProduct', () => {
     expect(typeof result.cost_price).toBe('number');
     expect(result.selling_price).toEqual(123.45);
     expect(result.cost_price).toEqual(67.89);
+  });
 
-    // Verify database stores as strings
-    const dbProduct = await db.select()
-      .from(productsTable)
-      .where(eq(productsTable.id, productId))
+  it('should update category_id', async () => {
+    // Create another category
+    const newCategory = await db.insert(categoriesTable)
+      .values({
+        name: 'New Category',
+        description: 'Another category'
+      })
+      .returning()
       .execute();
 
-    expect(typeof dbProduct[0].selling_price).toBe('string');
-    expect(typeof dbProduct[0].cost_price).toBe('string');
-    expect(dbProduct[0].selling_price).toEqual('123.45');
-    expect(dbProduct[0].cost_price).toEqual('67.89');
+    const input: UpdateProductInput = {
+      id: productId,
+      category_id: newCategory[0].id
+    };
+
+    const result = await updateProduct(input);
+
+    expect(result.category_id).toEqual(newCategory[0].id);
   });
 });

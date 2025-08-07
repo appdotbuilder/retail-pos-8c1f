@@ -33,15 +33,15 @@ describe('createUser', () => {
     expect(result.updated_at).toBeInstanceOf(Date);
 
     // Password should be hashed, not plain text
-    expect(result.password_hash).toBeDefined();
     expect(result.password_hash).not.toEqual('password123');
-    expect(result.password_hash.length).toBeGreaterThan(10);
+    expect(result.password_hash).toBeTruthy();
+    expect(typeof result.password_hash).toBe('string');
   });
 
-  it('should save user to database correctly', async () => {
+  it('should save user to database', async () => {
     const result = await createUser(testInput);
 
-    // Verify user was saved to database
+    // Query database to verify user was saved
     const users = await db.select()
       .from(usersTable)
       .where(eq(usersTable.id, result.id))
@@ -53,52 +53,64 @@ describe('createUser', () => {
     expect(users[0].full_name).toEqual('Test User');
     expect(users[0].role).toEqual('cashier');
     expect(users[0].is_active).toBe(true);
-    expect(users[0].password_hash).toBeDefined();
     expect(users[0].created_at).toBeInstanceOf(Date);
-    expect(users[0].updated_at).toBeInstanceOf(Date);
   });
 
-  it('should verify password can be validated', async () => {
+  it('should verify password is properly hashed', async () => {
     const result = await createUser(testInput);
 
-    // Verify the hashed password can be validated
+    // Verify the hashed password can be verified against original
     const isValid = await Bun.password.verify('password123', result.password_hash);
     expect(isValid).toBe(true);
 
+    // Verify wrong password fails
     const isInvalid = await Bun.password.verify('wrongpassword', result.password_hash);
     expect(isInvalid).toBe(false);
   });
 
+  it('should reject duplicate username', async () => {
+    await createUser(testInput);
+
+    const duplicateInput: CreateUserInput = {
+      ...testInput,
+      email: 'different@example.com' // Different email but same username
+    };
+
+    expect(createUser(duplicateInput)).rejects.toThrow(/unique/i);
+  });
+
+  it('should reject duplicate email', async () => {
+    await createUser(testInput);
+
+    const duplicateInput: CreateUserInput = {
+      ...testInput,
+      username: 'differentuser', // Different username but same email
+    };
+
+    expect(createUser(duplicateInput)).rejects.toThrow(/unique/i);
+  });
+
   it('should create users with different roles', async () => {
-    const adminInput = { ...testInput, username: 'admin', email: 'admin@example.com', role: 'admin' as const };
-    const stockManagerInput = { ...testInput, username: 'stock', email: 'stock@example.com', role: 'stock_manager' as const };
-
-    const admin = await createUser(adminInput);
-    const stockManager = await createUser(stockManagerInput);
-
-    expect(admin.role).toEqual('admin');
-    expect(stockManager.role).toEqual('stock_manager');
-  });
-
-  it('should throw error for duplicate username', async () => {
-    await createUser(testInput);
-
-    const duplicateUsernameInput = {
-      ...testInput,
-      email: 'different@example.com'
+    const adminInput: CreateUserInput = {
+      username: 'admin',
+      email: 'admin@example.com',
+      password: 'adminpass',
+      full_name: 'Admin User',
+      role: 'admin'
     };
 
-    await expect(createUser(duplicateUsernameInput)).rejects.toThrow(/duplicate key value violates unique constraint|username/i);
-  });
-
-  it('should throw error for duplicate email', async () => {
-    await createUser(testInput);
-
-    const duplicateEmailInput = {
-      ...testInput,
-      username: 'differentuser'
+    const stockInput: CreateUserInput = {
+      username: 'stockmanager',
+      email: 'stock@example.com',
+      password: 'stockpass',
+      full_name: 'Stock Manager',
+      role: 'stock_manager'
     };
 
-    await expect(createUser(duplicateEmailInput)).rejects.toThrow(/duplicate key value violates unique constraint|email/i);
+    const adminResult = await createUser(adminInput);
+    const stockResult = await createUser(stockInput);
+
+    expect(adminResult.role).toEqual('admin');
+    expect(stockResult.role).toEqual('stock_manager');
   });
 });

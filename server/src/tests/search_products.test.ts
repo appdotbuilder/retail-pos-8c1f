@@ -12,31 +12,25 @@ describe('searchProducts', () => {
 
   // Helper to create test data
   const createTestData = async () => {
-    // Create categories
-    const [category] = await db.insert(categoriesTable)
+    // Create test category
+    const category = await db.insert(categoriesTable)
       .values({
         name: 'Electronics',
-        description: 'Electronic products'
+        description: 'Electronic devices'
       })
       .returning()
       .execute();
 
-    const [category2] = await db.insert(categoriesTable)
-      .values({
-        name: 'Books',
-        description: 'Book products'
-      })
-      .returning()
-      .execute();
+    const categoryId = category[0].id;
 
     // Create test products
-    await db.insert(productsTable)
+    const products = await db.insert(productsTable)
       .values([
         {
           name: 'iPhone 15',
-          sku: 'PHONE001',
-          barcode: '123456789012',
-          category_id: category.id,
+          sku: 'IPHONE15',
+          barcode: '1234567890',
+          category_id: categoryId,
           selling_price: '999.99',
           cost_price: '800.00',
           current_stock: 10,
@@ -45,9 +39,9 @@ describe('searchProducts', () => {
         },
         {
           name: 'Samsung Galaxy',
-          sku: 'PHONE002',
-          barcode: '123456789013',
-          category_id: category.id,
+          sku: 'GALAXY23',
+          barcode: '9876543210',
+          category_id: categoryId,
           selling_price: '899.99',
           cost_price: '700.00',
           current_stock: 15,
@@ -55,183 +49,174 @@ describe('searchProducts', () => {
           is_active: true
         },
         {
-          name: 'Programming Book',
-          sku: 'BOOK001',
-          barcode: '123456789014',
-          category_id: category2.id,
-          selling_price: '49.99',
-          cost_price: '25.00',
-          current_stock: 20,
-          min_stock_level: 2,
-          is_active: true
-        },
-        {
-          name: 'Inactive Phone',
-          sku: 'PHONE003',
-          barcode: '123456789015',
-          category_id: category.id,
-          selling_price: '599.99',
-          cost_price: '400.00',
+          name: 'iPad Pro',
+          sku: 'IPADPRO',
+          barcode: null,
+          category_id: categoryId,
+          selling_price: '1299.99',
+          cost_price: '1000.00',
           current_stock: 5,
-          min_stock_level: 1,
-          is_active: false
+          min_stock_level: 2,
+          is_active: false // Inactive product
         }
       ])
+      .returning()
       .execute();
 
-    return { category, category2 };
+    return { categoryId, products };
+  };
+
+  const testInput: SearchProductInput = {
+    query: 'iPhone',
+    limit: 10
   };
 
   it('should search products by name', async () => {
     await createTestData();
 
-    const input: SearchProductInput = {
-      query: 'iPhone',
-      limit: 10
-    };
+    const result = await searchProducts(testInput);
 
-    const results = await searchProducts(input);
-
-    expect(results).toHaveLength(1);
-    expect(results[0].name).toBe('iPhone 15');
-    expect(results[0].sku).toBe('PHONE001');
-    expect(typeof results[0].selling_price).toBe('number');
-    expect(results[0].selling_price).toBe(999.99);
-    expect(typeof results[0].cost_price).toBe('number');
-    expect(results[0].cost_price).toBe(800.00);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toEqual('iPhone 15');
+    expect(result[0].sku).toEqual('IPHONE15');
+    expect(result[0].selling_price).toEqual(999.99);
+    expect(result[0].cost_price).toEqual(800.00);
+    expect(typeof result[0].selling_price).toBe('number');
+    expect(typeof result[0].cost_price).toBe('number');
   });
 
   it('should search products by SKU', async () => {
     await createTestData();
 
-    const input: SearchProductInput = {
-      query: 'BOOK001',
+    const skuInput: SearchProductInput = {
+      query: 'GALAXY',
       limit: 10
     };
 
-    const results = await searchProducts(input);
+    const result = await searchProducts(skuInput);
 
-    expect(results).toHaveLength(1);
-    expect(results[0].name).toBe('Programming Book');
-    expect(results[0].sku).toBe('BOOK001');
-    expect(results[0].selling_price).toBe(49.99);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toEqual('Samsung Galaxy');
+    expect(result[0].sku).toEqual('GALAXY23');
   });
 
   it('should search products by barcode', async () => {
     await createTestData();
 
-    const input: SearchProductInput = {
-      query: '123456789013',
+    const barcodeInput: SearchProductInput = {
+      query: '1234567890',
       limit: 10
     };
 
-    const results = await searchProducts(input);
+    const result = await searchProducts(barcodeInput);
 
-    expect(results).toHaveLength(1);
-    expect(results[0].name).toBe('Samsung Galaxy');
-    expect(results[0].barcode).toBe('123456789013');
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toEqual('iPhone 15');
+    expect(result[0].barcode).toEqual('1234567890');
   });
 
-  it('should support fuzzy matching', async () => {
+  it('should perform fuzzy matching', async () => {
     await createTestData();
 
-    const input: SearchProductInput = {
-      query: 'phone',
+    const fuzzyInput: SearchProductInput = {
+      query: 'sam',
       limit: 10
     };
 
-    const results = await searchProducts(input);
+    const result = await searchProducts(fuzzyInput);
 
-    expect(results).toHaveLength(2); // iPhone and Samsung (but not inactive phone)
-    expect(results.some(p => p.name === 'iPhone 15')).toBe(true);
-    expect(results.some(p => p.name === 'Samsung Galaxy')).toBe(true);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toEqual('Samsung Galaxy');
   });
 
   it('should filter by category', async () => {
-    const { category2 } = await createTestData();
+    const { categoryId } = await createTestData();
 
-    const input: SearchProductInput = {
-      query: 'book',
-      category_id: category2.id,
+    // Create another category with a product
+    const category2 = await db.insert(categoriesTable)
+      .values({
+        name: 'Books',
+        description: 'Books and literature'
+      })
+      .returning()
+      .execute();
+
+    await db.insert(productsTable)
+      .values({
+        name: 'iPhone Manual',
+        sku: 'MANUAL01',
+        barcode: '5555555555',
+        category_id: category2[0].id,
+        selling_price: '19.99',
+        cost_price: '10.00',
+        current_stock: 100,
+        min_stock_level: 10,
+        is_active: true
+      })
+      .execute();
+
+    const categoryInput: SearchProductInput = {
+      query: 'iPhone',
+      category_id: categoryId,
       limit: 10
     };
 
-    const results = await searchProducts(input);
+    const result = await searchProducts(categoryInput);
 
-    expect(results).toHaveLength(1);
-    expect(results[0].name).toBe('Programming Book');
-    expect(results[0].category_id).toBe(category2.id);
-  });
-
-  it('should exclude inactive products', async () => {
-    await createTestData();
-
-    const input: SearchProductInput = {
-      query: 'Inactive',
-      limit: 10
-    };
-
-    const results = await searchProducts(input);
-
-    expect(results).toHaveLength(0);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toEqual('iPhone 15');
+    expect(result[0].category_id).toEqual(categoryId);
   });
 
   it('should respect limit parameter', async () => {
     await createTestData();
 
-    const input: SearchProductInput = {
-      query: 'phone',
+    const limitInput: SearchProductInput = {
+      query: 'a', // Should match both iPhone and Galaxy
       limit: 1
     };
 
-    const results = await searchProducts(input);
+    const result = await searchProducts(limitInput);
 
-    expect(results).toHaveLength(1);
+    expect(result).toHaveLength(1);
   });
 
-  it('should return empty array when no matches found', async () => {
+  it('should only return active products', async () => {
     await createTestData();
 
-    const input: SearchProductInput = {
-      query: 'nonexistent',
+    const padInput: SearchProductInput = {
+      query: 'iPad',
       limit: 10
     };
 
-    const results = await searchProducts(input);
+    const result = await searchProducts(padInput);
 
-    expect(results).toHaveLength(0);
-    expect(Array.isArray(results)).toBe(true);
+    expect(result).toHaveLength(0); // iPad Pro is inactive
   });
 
-  it('should handle empty query gracefully', async () => {
+  it('should return empty array for no matches', async () => {
     await createTestData();
 
-    const input: SearchProductInput = {
+    const noMatchInput: SearchProductInput = {
+      query: 'NonExistentProduct',
+      limit: 10
+    };
+
+    const result = await searchProducts(noMatchInput);
+
+    expect(result).toHaveLength(0);
+  });
+
+  it('should handle empty query string', async () => {
+    await createTestData();
+
+    const emptyInput: SearchProductInput = {
       query: '',
       limit: 10
     };
 
-    const results = await searchProducts(input);
+    const result = await searchProducts(emptyInput);
 
-    // Should return active products (empty string matches everything with ILIKE)
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every(p => p.is_active)).toBe(true);
-  });
-
-  it('should convert numeric fields correctly', async () => {
-    await createTestData();
-
-    const input: SearchProductInput = {
-      query: 'iPhone',
-      limit: 10
-    };
-
-    const results = await searchProducts(input);
-
-    expect(results).toHaveLength(1);
-    expect(typeof results[0].selling_price).toBe('number');
-    expect(typeof results[0].cost_price).toBe('number');
-    expect(results[0].selling_price).toBe(999.99);
-    expect(results[0].cost_price).toBe(800.00);
+    expect(result).toHaveLength(2); // Should return all active products
   });
 });

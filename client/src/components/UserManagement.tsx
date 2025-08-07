@@ -1,32 +1,31 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { 
-  Users, 
-  Plus, 
-  Edit,
-  Shield,
-  UserCheck,
-  UserX
-} from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Users, Plus, Edit, Trash2, Search, UserCheck, UserX } from 'lucide-react';
 import { trpc } from '@/utils/trpc';
 import type { User, CreateUserInput, UserRole } from '../../../server/src/schema';
 
-export function UserManagement() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [isUserDialogOpen, setIsUserDialogOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+interface UserManagementProps {
+  users: User[];
+  onUsersChange: () => void;
+}
+
+export function UserManagement({ users, onUsersChange }: UserManagementProps) {
+  const [isAddingUser, setIsAddingUser] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // User form state
-  const [userForm, setUserForm] = useState<CreateUserInput>({
+  const [userFormData, setUserFormData] = useState<CreateUserInput>({
     username: '',
     email: '',
     password: '',
@@ -34,246 +33,283 @@ export function UserManagement() {
     role: 'cashier'
   });
 
-  // Load users
-  const loadUsers = useCallback(async () => {
-    try {
-      const result = await trpc.getUsers.query();
-      setUsers(result);
-    } catch (error) {
-      console.error('Failed to load users:', error);
-    }
+  // Filter users
+  const filteredUsers = users.filter((user: User) => {
+    const matchesSearch = user.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         user.email.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+    
+    return matchesSearch && matchesRole;
+  });
+
+  // Reset user form
+  const resetUserForm = useCallback(() => {
+    setUserFormData({
+      username: '',
+      email: '',
+      password: '',
+      full_name: '',
+      role: 'cashier'
+    });
   }, []);
 
-  useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
-
-  // Create user
-  const handleUserSubmit = async (e: React.FormEvent) => {
+  // Handle user form submission
+  const handleUserSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (userForm.password.length < 6) {
-      alert('Password must be at least 6 characters long');
-      return;
-    }
-
-    setIsLoading(true);
+    setIsProcessing(true);
+    
     try {
-      await trpc.createUser.mutate(userForm);
-      alert('User created successfully!');
-      setIsUserDialogOpen(false);
-      setUserForm({
-        username: '',
-        email: '',
-        password: '',
-        full_name: '',
-        role: 'cashier'
-      });
-      loadUsers();
+      await trpc.createUser.mutate(userFormData);
+      setIsAddingUser(false);
+      resetUserForm();
+      onUsersChange();
     } catch (error) {
       console.error('Failed to create user:', error);
       alert('Failed to create user. Please try again.');
     } finally {
-      setIsLoading(false);
+      setIsProcessing(false);
+    }
+  }, [userFormData, resetUserForm, onUsersChange]);
+
+  // Get role badge variant
+  const getRoleBadgeVariant = (role: UserRole) => {
+    switch (role) {
+      case 'admin':
+        return 'destructive';
+      case 'stock_manager':
+        return 'default';
+      case 'cashier':
+        return 'secondary';
+      default:
+        return 'outline';
     }
   };
 
-  // Get role color
-  const getRoleColor = (role: UserRole) => {
+  // Get role display name
+  const getRoleDisplayName = (role: UserRole) => {
     switch (role) {
-      case 'admin': return 'bg-red-100 text-red-800';
-      case 'cashier': return 'bg-blue-100 text-blue-800';
-      case 'stock_manager': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'admin':
+        return '👑 Admin';
+      case 'stock_manager':
+        return '📦 Stock Manager';
+      case 'cashier':
+        return '💰 Cashier';
+      default:
+        return role;
     }
   };
 
-  // Get role icon
-  const getRoleIcon = (role: UserRole) => {
-    switch (role) {
-      case 'admin': return <Shield className="h-3 w-3" />;
-      case 'cashier': return <UserCheck className="h-3 w-3" />;
-      case 'stock_manager': return <Users className="h-3 w-3" />;
-    }
+  // Count users by role
+  const userStats = {
+    total: users.length,
+    active: users.filter((u: User) => u.is_active).length,
+    admin: users.filter((u: User) => u.role === 'admin').length,
+    stock_manager: users.filter((u: User) => u.role === 'stock_manager').length,
+    cashier: users.filter((u: User) => u.role === 'cashier').length
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
-          <p className="text-gray-600 mt-1">Manage system users and their roles</p>
-        </div>
-        <Dialog open={isUserDialogOpen} onOpenChange={setIsUserDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              New User
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create New User</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleUserSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Username</label>
-                  <Input
-                    value={userForm.username}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setUserForm((prev: CreateUserInput) => ({ ...prev, username: e.target.value }))
-                    }
-                    required
-                    minLength={3}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Full Name</label>
-                  <Input
-                    value={userForm.full_name}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setUserForm((prev: CreateUserInput) => ({ ...prev, full_name: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Email</label>
-                <Input
-                  type="email"
-                  value={userForm.email}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setUserForm((prev: CreateUserInput) => ({ ...prev, email: e.target.value }))
-                  }
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Password</label>
-                <Input
-                  type="password"
-                  value={userForm.password}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setUserForm((prev: CreateUserInput) => ({ ...prev, password: e.target.value }))
-                  }
-                  required
-                  minLength={6}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Role</label>
-                <Select
-                  value={userForm.role || 'cashier'}
-                  onValueChange={(value: UserRole) =>
-                    setUserForm((prev: CreateUserInput) => ({ ...prev, role: value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">
-                      <div className="flex items-center">
-                        <Shield className="h-4 w-4 mr-2" />
-                        Administrator
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="cashier">
-                      <div className="flex items-center">
-                        <UserCheck className="h-4 w-4 mr-2" />
-                        Cashier
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="stock_manager">
-                      <div className="flex items-center">
-                        <Users className="h-4 w-4 mr-2" />
-                        Stock Manager
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setIsUserDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={isLoading}>
-                  {isLoading ? 'Creating...' : 'Create User'}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Role Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* User Statistics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Users</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{users.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Active system users
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Administrators</CardTitle>
-            <Shield className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {users.filter((u: User) => u.role === 'admin').length}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Full system access
-            </p>
+            <div className="text-2xl font-bold">{userStats.total}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Users</CardTitle>
-            <UserCheck className="h-4 w-4 text-green-500" />
+            <UserCheck className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {users.filter((u: User) => u.is_active).length}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Currently enabled
-            </p>
+            <div className="text-2xl font-bold text-green-600">{userStats.active}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Admins</CardTitle>
+            <Badge variant="destructive" className="text-xs">ADM</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{userStats.admin}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Stock Managers</CardTitle>
+            <Badge variant="default" className="text-xs">STK</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{userStats.stock_manager}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Cashiers</CardTitle>
+            <Badge variant="secondary" className="text-xs">CSH</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{userStats.cashier}</div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Users Table */}
+      {/* User Management */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center">
-            <Users className="h-5 w-5 mr-2" />
-            System Users ({users.length})
-          </CardTitle>
+          <div className="flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0">
+            <CardTitle className="flex items-center space-x-2">
+              <Users className="h-5 w-5" />
+              <span>User Management</span>
+            </CardTitle>
+            
+            <Dialog open={isAddingUser} onOpenChange={setIsAddingUser}>
+              <DialogTrigger asChild>
+                <Button className="flex items-center space-x-2">
+                  <Plus className="h-4 w-4" />
+                  <span>Add User</span>
+                </Button>
+              </DialogTrigger>
+              
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Add New User</DialogTitle>
+                </DialogHeader>
+                
+                <form onSubmit={handleUserSubmit} className="space-y-4">
+                  <div>
+                    <Label htmlFor="full_name">Full Name</Label>
+                    <Input
+                      id="full_name"
+                      value={userFormData.full_name}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setUserFormData((prev: CreateUserInput) => ({ ...prev, full_name: e.target.value }))
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="username">Username</Label>
+                    <Input
+                      id="username"
+                      value={userFormData.username}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setUserFormData((prev: CreateUserInput) => ({ ...prev, username: e.target.value }))
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={userFormData.email}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setUserFormData((prev: CreateUserInput) => ({ ...prev, email: e.target.value }))
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={userFormData.password}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setUserFormData((prev: CreateUserInput) => ({ ...prev, password: e.target.value }))
+                      }
+                      required
+                      minLength={6}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="role">Role</Label>
+                    <Select 
+                      value={userFormData.role || 'cashier'} 
+                      onValueChange={(value: UserRole) => 
+                        setUserFormData((prev: CreateUserInput) => ({ ...prev, role: value }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cashier">💰 Cashier</SelectItem>
+                        <SelectItem value="stock_manager">📦 Stock Manager</SelectItem>
+                        <SelectItem value="admin">👑 Admin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex space-x-2 pt-4">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={() => setIsAddingUser(false)}
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={isProcessing} className="flex-1">
+                      {isProcessing ? 'Creating...'  : 'Create User'}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         </CardHeader>
+
         <CardContent>
-          <ScrollArea className="h-96">
+          {/* Search and Filter */}
+          <div className="flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4 mb-6">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search users..."
+                value={searchQuery}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            
+            <Select value={roleFilter || 'all'} onValueChange={setRoleFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Roles</SelectItem>
+                <SelectItem value="admin">👑 Admin</SelectItem>
+                <SelectItem value="stock_manager">📦 Stock Manager</SelectItem>
+                <SelectItem value="cashier">💰 Cashier</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Users Table */}
+          <div className="border rounded-lg overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>User</TableHead>
                   <TableHead>Username</TableHead>
-                  <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Created</TableHead>
@@ -281,49 +317,46 @@ export function UserManagement() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.length === 0 ? (
+                {filteredUsers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-gray-500 py-8">
-                      No users found
+                    <TableCell colSpan={6} className="text-center py-8">
+                      <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                      <p className="text-gray-500">No users found</p>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  users.map((user: User) => (
+                  filteredUsers.map((user: User) => (
                     <TableRow key={user.id}>
                       <TableCell>
-                        <div className="flex items-center space-x-3">
-                          <Avatar className="h-8 w-8">
-                            <AvatarFallback>
-                              {user.full_name.split(' ').map((n: string) => n[0]).join('')}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-medium">{user.full_name}</p>
-                          </div>
+                        <div>
+                          <p className="font-medium">{user.full_name}</p>
+                          <p className="text-sm text-gray-500">{user.email}</p>
                         </div>
                       </TableCell>
-                      <TableCell className="font-mono text-sm">{user.username}</TableCell>
-                      <TableCell>{user.email}</TableCell>
                       <TableCell>
-                        <Badge className={getRoleColor(user.role)}>
-                          <div className="flex items-center space-x-1">
-                            {getRoleIcon(user.role)}
-                            <span>{user.role.replace('_', ' ').toUpperCase()}</span>
-                          </div>
+                        <code className="bg-gray-100 px-2 py-1 rounded text-sm">
+                          {user.username}
+                        </code>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={getRoleBadgeVariant(user.role)}>
+                          {getRoleDisplayName(user.role)}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {user.is_active ? (
-                          <Badge variant="secondary" className="bg-green-100 text-green-800">
-                            <UserCheck className="h-3 w-3 mr-1" />
-                            Active
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="bg-gray-100 text-gray-800">
-                            <UserX className="h-3 w-3 mr-1" />
-                            Inactive
-                          </Badge>
-                        )}
+                        <div className="flex items-center space-x-2">
+                          {user.is_active ? (
+                            <Badge variant="default" className="flex items-center space-x-1">
+                              <UserCheck className="h-3 w-3" />
+                              <span>Active</span>
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="flex items-center space-x-1">
+                              <UserX className="h-3 w-3" />
+                              <span>Inactive</span>
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div>
@@ -332,14 +365,41 @@ export function UserManagement() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end space-x-2">
+                        <div className="flex items-center justify-end space-x-2">
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled
+                            disabled={user.role === 'admin'}
+                            title={user.role === 'admin' ? 'Cannot edit admin users' : 'Edit user'}
                           >
-                            <Edit className="h-3 w-3" />
+                            <Edit className="h-4 w-4" />
                           </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button 
+                                size="sm" 
+                                variant="destructive"
+                                disabled={user.role === 'admin'}
+                                title={user.role === 'admin' ? 'Cannot delete admin users' : 'Delete user'}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete User</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete user "{user.full_name}"? This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction className="bg-red-600 hover:bg-red-700">
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -347,7 +407,7 @@ export function UserManagement() {
                 )}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>

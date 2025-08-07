@@ -5,7 +5,7 @@ import { type CreateUserInput, type User } from '../schema';
 
 export async function createUser(input: CreateUserInput): Promise<User> {
   try {
-    // Hash the password using Bun's built-in password hashing
+    // Hash the password
     const password_hash = await Bun.password.hash(input.password);
 
     // Insert user record
@@ -16,8 +16,6 @@ export async function createUser(input: CreateUserInput): Promise<User> {
         password_hash,
         full_name: input.full_name,
         role: input.role
-        // is_active defaults to true
-        // created_at and updated_at are set automatically
       })
       .returning()
       .execute();

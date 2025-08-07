@@ -2,13 +2,14 @@
 import { db } from '../db';
 import { productsTable } from '../db/schema';
 import { type Product } from '../schema';
+import { lte } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 
-export const getLowStockProducts = async (): Promise<Product[]> => {
+export async function getLowStockProducts(): Promise<Product[]> {
   try {
     const results = await db.select()
       .from(productsTable)
-      .where(sql`${productsTable.current_stock} <= ${productsTable.min_stock_level}`)
+      .where(lte(productsTable.current_stock, sql`${productsTable.min_stock_level}`))
       .execute();
 
     // Convert numeric fields back to numbers
@@ -21,4 +22,4 @@ export const getLowStockProducts = async (): Promise<Product[]> => {
     console.error('Failed to fetch low stock products:', error);
     throw error;
   }
-};
+}

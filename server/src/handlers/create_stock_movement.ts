@@ -1,70 +1,70 @@
 
 import { db } from '../db';
-import { productsTable, stockMovementsTable } from '../db/schema';
+import { stockMovementsTable, productsTable } from '../db/schema';
 import { type CreateStockMovementInput, type StockMovement } from '../schema';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
-export const createStockMovement = async (input: CreateStockMovementInput): Promise<StockMovement> => {
+export async function createStockMovement(input: CreateStockMovementInput): Promise<StockMovement> {
   try {
     return await db.transaction(async (tx) => {
-      // First, get the current product to validate stock levels
-      const products = await tx.select()
+      // First, check if the product exists
+      const product = await tx.select()
         .from(productsTable)
         .where(eq(productsTable.id, input.product_id))
+        .limit(1)
         .execute();
 
-      if (products.length === 0) {
+      if (product.length === 0) {
         throw new Error(`Product with id ${input.product_id} not found`);
       }
 
-      const product = products[0];
-      const currentStock = product.current_stock;
+      const currentStock = product[0].current_stock;
 
-      // Calculate the new stock level based on movement type
-      let newStock: number;
-      if (input.movement_type === 'in') {
-        newStock = currentStock + input.quantity;
-      } else if (input.movement_type === 'out') {
-        newStock = currentStock - input.quantity;
-        // Validate that we don't go below zero for 'out' movements
-        if (newStock < 0) {
-          throw new Error(`Insufficient stock. Current stock: ${currentStock}, requested: ${input.quantity}`);
-        }
-      } else { // adjustment
-        // For adjustments, the quantity represents the final stock level
-        newStock = input.quantity;
+      // For 'out' movements, validate sufficient stock
+      if (input.movement_type === 'out' && currentStock < input.quantity) {
+        throw new Error(`Insufficient stock. Current: ${currentStock}, Requested: ${input.quantity}`);
       }
 
-      // Create the stock movement record
-      const movementResult = await tx.insert(stockMovementsTable)
+      // Calculate new stock level
+      let newStockLevel = currentStock;
+      if (input.movement_type === 'in') {
+        newStockLevel = currentStock + input.quantity;
+      } else if (input.movement_type === 'out') {
+        newStockLevel = currentStock - input.quantity;
+      } else if (input.movement_type === 'adjustment') {
+        // For adjustment, quantity is the final amount, not a delta
+        newStockLevel = input.quantity;
+      }
+
+      // Create stock movement record
+      const stockMovementResult = await tx.insert(stockMovementsTable)
         .values({
           product_id: input.product_id,
           movement_type: input.movement_type,
           quantity: input.quantity,
-          reference_id: null,
           notes: input.notes,
           created_by: input.created_by
         })
         .returning()
         .execute();
 
-      // Update the product's current stock
+      // Update product stock level
       await tx.update(productsTable)
-        .set({ 
-          current_stock: newStock,
-          updated_at: new Date()
+        .set({
+          current_stock: newStockLevel,
+          updated_at: sql`now()`
         })
         .where(eq(productsTable.id, input.product_id))
         .execute();
 
-      const movement = movementResult[0];
+      const stockMovement = stockMovementResult[0];
       return {
-        ...movement,
-        created_at: movement.created_at
+        ...stockMovement,
+        reference_id: stockMovement.reference_id || null
       };
     });
   } catch (error) {
     console.error('Stock movement creation failed:', error);
     throw error;
   }
-};
+}

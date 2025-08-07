@@ -7,48 +7,33 @@ import { eq } from 'drizzle-orm';
 export async function updateProduct(input: UpdateProductInput): Promise<Product> {
   try {
     // Build update object with only provided fields
-    const updateData: Partial<{
-      name: string;
-      sku: string;
-      barcode: string | null;
-      category_id: number;
-      selling_price: string;
-      cost_price: string;
-      min_stock_level: number;
-      updated_at: Date;
-    }> = {
+    const updateData: any = {
       updated_at: new Date()
     };
 
     if (input.name !== undefined) {
       updateData.name = input.name;
     }
-
     if (input.sku !== undefined) {
       updateData.sku = input.sku;
     }
-
     if (input.barcode !== undefined) {
       updateData.barcode = input.barcode;
     }
-
     if (input.category_id !== undefined) {
       updateData.category_id = input.category_id;
     }
-
     if (input.selling_price !== undefined) {
       updateData.selling_price = input.selling_price.toString();
     }
-
     if (input.cost_price !== undefined) {
       updateData.cost_price = input.cost_price.toString();
     }
-
     if (input.min_stock_level !== undefined) {
       updateData.min_stock_level = input.min_stock_level;
     }
 
-    // Update the product
+    // Update product record
     const result = await db.update(productsTable)
       .set(updateData)
       .where(eq(productsTable.id, input.id))

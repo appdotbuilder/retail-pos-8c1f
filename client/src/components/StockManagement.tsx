@@ -1,458 +1,298 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  Package, 
-  TrendingUp, 
-  TrendingDown, 
-  Edit3,
-  AlertTriangle,
-  History,
-  Plus,
-  Minus
-} from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { AlertTriangle, Package, TrendingUp, TrendingDown, RotateCcw, Search, Plus } from 'lucide-react';
 import { trpc } from '@/utils/trpc';
-import type { Product, StockMovement, User, CreateStockMovementInput, StockMovementType } from '../../../server/src/schema';
+import type { Product, User, StockMovement, CreateStockMovementInput, StockMovementType } from '../../../server/src/schema';
 
 interface StockManagementProps {
+  products: Product[];
   currentUser: User;
+  lowStockProducts: Product[];
+  onStockChange: () => void;
 }
 
-export function StockManagement({ currentUser }: StockManagementProps) {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
-  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
-  const [isAdjustmentDialogOpen, setIsAdjustmentDialogOpen] = useState(false);
+export function StockManagement({ products, currentUser, lowStockProducts, onStockChange }: StockManagementProps) {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isAddingMovement, setIsAddingMovement] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  // Stock adjustment form
-  const [adjustmentForm, setAdjustmentForm] = useState<CreateStockMovementInput>({
+  // Stock movement form state
+  const [movementFormData, setMovementFormData] = useState<CreateStockMovementInput>({
     product_id: 0,
-    movement_type: 'adjustment',
+    movement_type: 'in',
     quantity: 0,
     notes: null,
     created_by: currentUser.id
   });
 
-  // Load data
-  const loadProducts = useCallback(async () => {
-    try {
-      const result = await trpc.getProducts.query();
-      setProducts(result);
-    } catch (error) {
-      console.error('Failed to load products:', error);
-    }
-  }, []);
+  // Filter products for low stock
+  const filteredProducts = products.filter((product: Product) =>
+    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    product.sku.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
-  const loadLowStockProducts = useCallback(async () => {
-    try {
-      const result = await trpc.getLowStockProducts.query();
-      setLowStockProducts(result);
-    } catch (error) {
-      console.error('Failed to load low stock products:', error);
-    }
-  }, []);
-
-  const loadStockMovements = useCallback(async () => {
-    try {
-      const result = await trpc.getStockMovements.query({});
-      setStockMovements(result);
-    } catch (error) {
-      console.error('Failed to load stock movements:', error);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadProducts();
-    loadLowStockProducts();
-    loadStockMovements();
-  }, [loadProducts, loadLowStockProducts, loadStockMovements]);
-
-  // Stock adjustment
-  const handleStockAdjustment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (adjustmentForm.quantity === 0) {
-      alert('Please enter a quantity');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      await trpc.createStockMovement.mutate(adjustmentForm);
-      alert('Stock adjustment recorded successfully!');
-      setIsAdjustmentDialogOpen(false);
-      setSelectedProduct(null);
-      setAdjustmentForm({
-        product_id: 0,
-        movement_type: 'adjustment',
-        quantity: 0,
-        notes: null,
-        created_by: currentUser.id
-      });
-      loadProducts();
-      loadLowStockProducts();
-      loadStockMovements();
-    } catch (error) {
-      console.error('Failed to record stock adjustment:', error);
-      alert('Failed to record stock adjustment. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Start stock adjustment
-  const startStockAdjustment = (product: Product) => {
-    setSelectedProduct(product);
-    setAdjustmentForm({
-      product_id: product.id,
-      movement_type: 'adjustment',
+  // Reset movement form
+  const resetMovementForm = useCallback(() => {
+    setMovementFormData({
+      product_id: 0,
+      movement_type: 'in',
       quantity: 0,
       notes: null,
       created_by: currentUser.id
     });
-    setIsAdjustmentDialogOpen(true);
-  };
+  }, [currentUser.id]);
 
-  // Get movement type icon
-  const getMovementIcon = (type: StockMovementType) => {
-    switch (type) {
-      case 'in': return <TrendingUp className="h-4 w-4 text-green-500" />;
-      case 'out': return <TrendingDown className="h-4 w-4 text-red-500" />;
-      case 'adjustment': return <Edit3 className="h-4 w-4 text-blue-500" />;
+  // Load stock movements for a product
+  const loadStockMovements = useCallback(async (productId: number) => {
+    setIsLoading(true);
+    try {
+      const movements = await trpc.getStockMovements.query({ productId });
+      setStockMovements(movements);
+    } catch (error) {
+      console.error('Failed to load stock movements:', error);
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, []);
 
-  // Get movement type color
-  const getMovementColor = (type: StockMovementType) => {
-    switch (type) {
-      case 'in': return 'bg-green-100 text-green-800';
-      case 'out': return 'bg-red-100 text-red-800';
-      case 'adjustment': return 'bg-blue-100 text-blue-800';
+  // Handle product selection for viewing movements
+  const selectProduct = useCallback((product: Product) => {
+    setSelectedProduct(product);
+    loadStockMovements(product.id);
+  }, [loadStockMovements]);
+
+  // Handle stock movement submission
+  const handleMovementSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (movementFormData.product_id === 0) {
+      alert('Please select a product');
+      return;
     }
-  };
 
-  // Get product name
-  const getProductName = (productId: number) => {
-    const product = products.find((p: Product) => p.id === productId);
-    return product ? product.name : `Product #${productId}`;
-  };
+    if (movementFormData.quantity <= 0) {
+      alert('Please enter a valid quantity');
+      return;
+    }
+
+    setIsProcessing(true);
+    
+    try {
+      await trpc.createStockMovement.mutate(movementFormData);
+      setIsAddingMovement(false);
+      resetMovementForm();
+      onStockChange();
+      
+      // Refresh movements if viewing a product
+      if (selectedProduct) {
+        loadStockMovements(selectedProduct.id);
+      }
+    } catch (error) {
+      console.error('Failed to create stock movement:', error);
+      alert('Failed to create stock movement. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [movementFormData, resetMovementForm, onStockChange, selectedProduct, loadStockMovements]);
+
+  // Quick adjustment functions
+  const quickAdjustment = useCallback((product: Product, type: StockMovementType) => {
+    setMovementFormData({
+      product_id: product.id,
+      movement_type: type,
+      quantity: 1,
+      notes: `Quick ${type} adjustment`,
+      created_by: currentUser.id
+    });
+    setIsAddingMovement(true);
+  }, [currentUser.id]);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Stock Management</h1>
-          <p className="text-gray-600 mt-1">Monitor and adjust your inventory levels</p>
-        </div>
-      </div>
-
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Products</CardTitle>
-            <Package className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{products.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Active products in inventory
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-orange-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{lowStockProducts.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Products below minimum level
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Stock Value</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              ${products.reduce((sum, p) => sum + (p.current_stock * p.cost_price), 0).toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Based on cost prices
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Main Content Tabs */}
-      <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="overview">Stock Overview</TabsTrigger>
-          <TabsTrigger value="lowstock">Low Stock</TabsTrigger>
-          <TabsTrigger value="movements">Stock Movements</TabsTrigger>
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview" className="flex items-center space-x-2">
+            <Package className="h-4 w-4" />
+            <span>Stock Overview</span>
+          </TabsTrigger>
+          <TabsTrigger value="low-stock" className="flex items-center space-x-2">
+            <AlertTriangle className="h-4 w-4" />
+            <span>Low Stock ({lowStockProducts.length})</span>
+          </TabsTrigger>
+          <TabsTrigger value="movements" className="flex items-center space-x-2">
+            <RotateCcw className="h-4 w-4" />
+            <span>Stock Movements</span>
+          </TabsTrigger>
         </TabsList>
 
-        {/* Stock Overview Tab */}
+        {/* Stock Overview */}
         <TabsContent value="overview" className="space-y-6">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="flex items-center">
-                <Package className="h-5 w-5 mr-2" />
-                All Products Stock Levels
-              </CardTitle>
-              <Dialog open={isAdjustmentDialogOpen} onOpenChange={setIsAdjustmentDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Edit3 className="h-4 w-4 mr-2" />
-                    Stock Adjustment
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Stock Adjustment</DialogTitle>
-                  </DialogHeader>
-                  <form onSubmit={handleStockAdjustment} className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Product</label>
-                      <Select
-                        value={selectedProduct ? selectedProduct.id.toString() : ''}
-                        onValueChange={(value: string) => {
-                          const product = products.find((p: Product) => p.id === parseInt(value));
-                          if (product) {
-                            setSelectedProduct(product);
-                            setAdjustmentForm((prev: CreateStockMovementInput) => ({
-                              ...prev,
-                              product_id: product.id
-                            }));
+            <CardHeader>
+              <div className="flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0">
+                <CardTitle className="flex items-center space-x-2">
+                  <Package className="h-5 w-5" />
+                  <span>Stock Overview</span>
+                </CardTitle>
+                
+                <Dialog open={isAddingMovement} onOpenChange={setIsAddingMovement}>
+                  <DialogTrigger asChild>
+                    <Button className="flex items-center space-x-2">
+                      <Plus className="h-4 w-4" />
+                      <span>Stock Movement</span>
+                    </Button>
+                  </DialogTrigger>
+                  
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Create Stock Movement</DialogTitle>
+                    </DialogHeader>
+                    
+                    <form onSubmit={handleMovementSubmit} className="space-y-4">
+                      <div>
+                        <Label htmlFor="product">Product</Label>
+                        <Select 
+                          value={movementFormData.product_id.toString() || ''} 
+                          onValueChange={(value: string) => 
+                            setMovementFormData((prev: CreateStockMovementInput) => ({ 
+                              ...prev, 
+                              product_id: parseInt(value) 
+                            }))
                           }
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a product" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {products.map((product: Product) => (
-                            <SelectItem key={product.id} value={product.id.toString()}>
-                              {product.name} - Current: {product.current_stock}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {selectedProduct && (
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-sm">
-                          <span className="font-medium">Current Stock:</span> {selectedProduct.current_stock}
-                        </p>
-                        <p className="text-sm">
-                          <span className="font-medium">Min Level:</span> {selectedProduct.min_stock_level}
-                        </p>
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select Product" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products.map((product: Product) => (
+                              <SelectItem key={product.id} value={product.id.toString()}>
+                                {product.name} (Stock: {product.current_stock})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    )}
 
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Adjustment Type</label>
-                      <div className="flex space-x-2">
-                        <Button
-                          type="button"
-                          variant={adjustmentForm.quantity > 0 ? 'default' : 'outline'}
-                          onClick={() => setAdjustmentForm((prev: CreateStockMovementInput) => ({
-                            ...prev,
-                            quantity: Math.abs(prev.quantity)
-                          }))}
+                      <div>
+                        <Label htmlFor="movement_type">Movement Type</Label>
+                        <Select 
+                          value={movementFormData.movement_type} 
+                          onValueChange={(value: StockMovementType) => 
+                            setMovementFormData((prev: CreateStockMovementInput) => ({ 
+                              ...prev, 
+                              movement_type: value 
+                            }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="in">📈 Stock In (Add)</SelectItem>
+                            <SelectItem value="out">📉 Stock Out (Remove)</SelectItem>
+                            <SelectItem value="adjustment">🔄 Adjustment</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="quantity">Quantity</Label>
+                        <Input
+                          id="quantity"
+                          type="number"
+                          min="1"
+                          value={movementFormData.quantity}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            setMovementFormData((prev: CreateStockMovementInput) => ({ 
+                              ...prev, 
+                              quantity: parseInt(e.target.value) || 0 
+                            }))
+                          }
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="notes">Notes (Optional)</Label>
+                        <Textarea
+                          id="notes"
+                          value={movementFormData.notes || ''}
+                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                            setMovementFormData((prev: CreateStockMovementInput) => ({ 
+                              ...prev, 
+                              notes: e.target.value || null 
+                            }))
+                          }
+                          placeholder="Reason for stock movement..."
+                        />
+                      </div>
+
+                      <div className="flex space-x-2 pt-4">
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          onClick={() => setIsAddingMovement(false)}
                           className="flex-1"
                         >
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add Stock
+                          Cancel
                         </Button>
-                        <Button
-                          type="button"
-                          variant={adjustmentForm.quantity < 0 ? 'default' : 'outline'}
-                          onClick={() => setAdjustmentForm((prev: CreateStockMovementInput) => ({
-                            ...prev,
-                            quantity: -Math.abs(prev.quantity)
-                          }))}
-                          className="flex-1"
-                        >
-                          <Minus className="h-4 w-4 mr-2" />
-                          Remove Stock
+                        <Button type="submit" disabled={isProcessing} className="flex-1">
+                          {isProcessing ? 'Processing...' : 'Create Movement'}
                         </Button>
                       </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Quantity</label>
-                      <Input
-                        type="number"
-                        min="1"
-                        value={Math.abs(adjustmentForm.quantity)}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                          const value = parseInt(e.target.value) || 0;
-                          setAdjustmentForm((prev: CreateStockMovementInput) => ({
-                            ...prev,
-                            quantity: prev.quantity < 0 ? -value : value
-                          }));
-                        }}
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Notes</label>
-                      <Textarea
-                        value={adjustmentForm.notes || ''}
-                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                          setAdjustmentForm((prev: CreateStockMovementInput) => ({ 
-                            ...prev, 
-                            notes: e.target.value || null 
-                          }))
-                        }
-                        placeholder="Reason for adjustment..."
-                      />
-                    </div>
-
-                    <div className="flex justify-end space-x-2">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        onClick={() => {
-                          setIsAdjustmentDialogOpen(false);
-                          setSelectedProduct(null);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button type="submit" disabled={isLoading || !selectedProduct}>
-                        {isLoading ? 'Recording...' : 'Record Adjustment'}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </CardHeader>
+
             <CardContent>
-              <ScrollArea className="h-96">
+              {/* Search */}
+              <div className="relative mb-6">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder="Search products..."
+                  value={searchQuery}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+
+              {/* Products Table */}
+              <div className="border rounded-lg overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Product</TableHead>
-                      <TableHead>SKU</TableHead>
                       <TableHead>Current Stock</TableHead>
                       <TableHead>Min Level</TableHead>
-                      <TableHead>Value</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="text-right">Quick Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {products.length === 0 ? (
+                    {filteredProducts.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-gray-500 py-8">
-                          No products found
+                        <TableCell colSpan={5} className="text-center py-8">
+                          <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                          <p className="text-gray-500">No products found</p>
                         </TableCell>
                       </TableRow>
                     ) : (
-                      products.map((product: Product) => (
-                        <TableRow key={product.id}>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{product.name}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell className="font-mono text-sm">{product.sku}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center space-x-2">
-                              <span className="font-medium">{product.current_stock}</span>
-                              {product.current_stock <= product.min_stock_level && (
-                                <AlertTriangle className="h-4 w-4 text-orange-500" />
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>{product.min_stock_level}</TableCell>
-                          <TableCell>
-                            ${(product.current_stock * product.cost_price).toFixed(2)}
-                          </TableCell>
-                          <TableCell>
-                            {product.current_stock <= 0 ? (
-                              <Badge variant="destructive">Out of Stock</Badge>
-                            ) : product.current_stock <= product.min_stock_level ? (
-                              <Badge variant="secondary" className="bg-orange-100 text-orange-800">
-                                Low Stock
-                              </Badge>
-                            ) : (
-                              <Badge variant="secondary" className="bg-green-100 text-green-800">
-                                In Stock
-                              </Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => startStockAdjustment(product)}
-                            >
-                              <Edit3 className="h-3 w-3 mr-1" />
-                              Adjust
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Low Stock Tab */}
-        <TabsContent value="lowstock" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <AlertTriangle className="h-5 w-5 mr-2 text-orange-500" />
-                Low Stock Products ({lowStockProducts.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {lowStockProducts.length === 0 ? (
-                <div className="text-center text-gray-500 py-8">
-                  <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                  <p className="text-lg font-medium">All products are well stocked!</p>
-                  <p className="text-sm">No products are below their minimum stock level.</p>
-                </div>
-              ) : (
-                <ScrollArea className="h-96">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Product</TableHead>
-                        <TableHead>Current Stock</TableHead>
-                        <TableHead>Min Level</TableHead>
-                        <TableHead>Deficit</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {lowStockProducts.map((product: Product) => (
+                      filteredProducts.map((product: Product) => (
                         <TableRow key={product.id}>
                           <TableCell>
                             <div>
@@ -461,30 +301,138 @@ export function StockManagement({ currentUser }: StockManagementProps) {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <span className="font-medium text-orange-600">
+                            <span className={`font-semibold ${
+                              product.current_stock <= product.min_stock_level 
+                                ? 'text-red-600' 
+                                : product.current_stock <= product.min_stock_level * 2
+                                ? 'text-yellow-600'
+                                : 'text-green-600'
+                            }`}>
                               {product.current_stock}
                             </span>
                           </TableCell>
                           <TableCell>{product.min_stock_level}</TableCell>
                           <TableCell>
-                            <span className="font-medium text-red-600">
-                              {product.min_stock_level - product.current_stock}
-                            </span>
+                            {product.current_stock <= product.min_stock_level ? (
+                              <Badge variant="destructive">
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                Low Stock
+                              </Badge>
+                            ) : product.current_stock <= product.min_stock_level * 2 ? (
+                              <Badge variant="secondary">Warning</Badge>
+                            ) : (
+                              <Badge variant="default">Good</Badge>
+                            )}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              size="sm"
-                              onClick={() => startStockAdjustment(product)}
-                            >
-                              <Plus className="h-3 w-3 mr-1" />
-                              Restock
-                            </Button>
+                            <div className="flex items-center justify-end space-x-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => quickAdjustment(product, 'in')}
+                                className="flex items-center space-x-1"
+                              >
+                                <TrendingUp className="h-3 w-3" />
+                                <span>Add</span>
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => quickAdjustment(product, 'out')}
+                                className="flex items-center space-x-1"
+                              >
+                                <TrendingDown className="h-3 w-3" />
+                                <span>Remove</span>
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => selectProduct(product)}
+                              >
+                                View
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </ScrollArea>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Low Stock Tab */}
+        <TabsContent value="low-stock" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <AlertTriangle className="h-5 w-5 text-red-500" />
+                <span>Low Stock Products</span>
+                <Badge variant="destructive">{lowStockProducts.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+
+            <CardContent>
+              {lowStockProducts.length === 0 ? (
+                <div className="text-center py-8">
+                  <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500">No low stock products! 🎉</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {lowStockProducts.map((product: Product) => (
+                    <Card key={product.id} className="border-red-200 bg-red-50">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h3 className="font-semibold text-lg">{product.name}</h3>
+                            <p className="text-sm text-gray-600">SKU: {product.sku}</p>
+                          </div>
+                          <Badge variant="destructive">
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            Low
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="flex justify-between">
+                          <span className="text-sm text-gray-600">Current Stock:</span>
+                          <span className="font-semibold text-red-600">{product.current_stock}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-gray-600">Min Level:</span>
+                          <span className="font-medium">{product.min_stock_level}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-gray-600">Shortage:</span>
+                          <span className="font-semibold text-red-600">
+                            {Math.max(0, product.min_stock_level - product.current_stock)} units
+                          </span>
+                        </div>
+                        
+                        <div className="flex space-x-2 pt-2">
+                          <Button
+                            size="sm"
+                            onClick={() => quickAdjustment(product, 'in')}
+                            className="flex-1"
+                          >
+                            <TrendingUp className="h-3 w-3 mr-1" />
+                            Restock
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => selectProduct(product)}
+                          >
+                            View
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -494,59 +442,92 @@ export function StockManagement({ currentUser }: StockManagementProps) {
         <TabsContent value="movements" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center">
-                <History className="h-5 w-5 mr-2" />
-                Recent Stock Movements
+              <CardTitle className="flex items-center space-x-2">
+                <RotateCcw className="h-5 w-5" />
+                <span>Stock Movements</span>
+                {selectedProduct && (
+                  <Badge variant="outline">
+                    {selectedProduct.name}
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
+
             <CardContent>
-              <ScrollArea className="h-96">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Notes</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {stockMovements.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center text-gray-500 py-8">
-                          No stock movements recorded
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      stockMovements.slice(0, 50).map((movement: StockMovement) => (
-                        <TableRow key={movement.id}>
-                          <TableCell>
-                            {movement.created_at.toLocaleDateString()} {movement.created_at.toLocaleTimeString()}
-                          </TableCell>
-                          <TableCell>{getProductName(movement.product_id)}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center space-x-2">
-                              {getMovementIcon(movement.movement_type)}
-                              <Badge className={getMovementColor(movement.movement_type)}>
-                                {movement.movement_type.toUpperCase()}
-                              </Badge>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <span className={movement.quantity > 0 ? 'text-green-600' : 'text-red-600'}>
-                              {movement.quantity > 0 ? '+' : ''}{movement.quantity}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            {movement.notes || '-'}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
+              {!selectedProduct ? (
+                <div className="text-center py-8">
+                  <RotateCcw className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500">Select a product from the Stock Overview to view movements</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Movement History</h3>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setSelectedProduct(null)}
+                    >
+                      Clear Selection
+                    </Button>
+                  </div>
+
+                  {isLoading ? (
+                    <div className="text-center py-8">
+                      <p>Loading movements...</p>
+                    </div>
+                  ) : stockMovements.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-gray-500">No movements found for this product</p>
+                    </div>
+                  ) : (
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Quantity</TableHead>
+                            <TableHead>Notes</TableHead>
+                            <TableHead>Created By</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {stockMovements.map((movement: StockMovement) => (
+                            <TableRow key={movement.id}>
+                              <TableCell>
+                                {movement.created_at.toLocaleDateString()} {movement.created_at.toLocaleTimeString()}
+                              </TableCell>
+                              <TableCell>
+                                <Badge 
+                                  variant={
+                                    movement.movement_type === 'in' ? 'default' :
+                                    movement.movement_type === 'out' ? 'destructive' : 'secondary'
+                                  }
+                                  className="flex items-center space-x-1 w-fit"
+                                >
+                                  {movement.movement_type === 'in' && <TrendingUp className="h-3 w-3" />}
+                                  {movement.movement_type === 'out' && <TrendingDown className="h-3 w-3" />}
+                                  {movement.movement_type === 'adjustment' && <RotateCcw className="h-3 w-3" />}
+                                  <span className="capitalize">{movement.movement_type}</span>
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="font-medium">
+                                {movement.movement_type === 'out' ? '-' : '+'}{movement.quantity}
+                              </TableCell>
+                              <TableCell>
+                                {movement.notes || <span className="text-gray-400">No notes</span>}
+                              </TableCell>
+                              <TableCell>
+                                User #{movement.created_by}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

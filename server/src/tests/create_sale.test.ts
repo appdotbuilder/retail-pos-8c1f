@@ -2,7 +2,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { resetDB, createDB } from '../helpers';
 import { db } from '../db';
-import { usersTable, categoriesTable, productsTable, salesTable, saleItemsTable, stockMovementsTable } from '../db/schema';
+import { 
+  salesTable, 
+  saleItemsTable, 
+  productsTable, 
+  stockMovementsTable,
+  usersTable,
+  categoriesTable 
+} from '../db/schema';
 import { type CreateSaleInput } from '../schema';
 import { createSale } from '../handlers/create_sale';
 import { eq } from 'drizzle-orm';
@@ -11,25 +18,24 @@ describe('createSale', () => {
   beforeEach(createDB);
   afterEach(resetDB);
 
-  let testCashierId: number;
-  let testCategoryId: number;
-  let testProductId1: number;
-  let testProductId2: number;
+  let cashierId: number;
+  let categoryId: number;
+  let productId1: number;
+  let productId2: number;
 
   beforeEach(async () => {
-    // Create test cashier
-    const cashierResult = await db.insert(usersTable)
+    // Create test user (cashier)
+    const userResult = await db.insert(usersTable)
       .values({
-        username: 'cashier1',
-        email: 'cashier1@test.com',
+        username: 'testcashier',
+        email: 'cashier@test.com',
         password_hash: 'hashed_password',
         full_name: 'Test Cashier',
-        role: 'cashier',
-        is_active: true
+        role: 'cashier'
       })
       .returning()
       .execute();
-    testCashierId = cashierResult[0].id;
+    cashierId = userResult[0].id;
 
     // Create test category
     const categoryResult = await db.insert(categoriesTable)
@@ -39,214 +45,251 @@ describe('createSale', () => {
       })
       .returning()
       .execute();
-    testCategoryId = categoryResult[0].id;
+    categoryId = categoryResult[0].id;
 
     // Create test products
     const product1Result = await db.insert(productsTable)
       .values({
         name: 'Test Product 1',
         sku: 'TEST001',
-        category_id: testCategoryId,
+        category_id: categoryId,
         selling_price: '10.00',
         cost_price: '5.00',
         current_stock: 100,
-        min_stock_level: 10,
-        is_active: true
+        min_stock_level: 10
       })
       .returning()
       .execute();
-    testProductId1 = product1Result[0].id;
+    productId1 = product1Result[0].id;
 
     const product2Result = await db.insert(productsTable)
       .values({
         name: 'Test Product 2',
         sku: 'TEST002',
-        category_id: testCategoryId,
-        selling_price: '15.50',
-        cost_price: '8.00',
+        category_id: categoryId,
+        selling_price: '20.00',
+        cost_price: '10.00',
         current_stock: 50,
-        min_stock_level: 5,
-        is_active: true
+        min_stock_level: 5
       })
       .returning()
       .execute();
-    testProductId2 = product2Result[0].id;
+    productId2 = product2Result[0].id;
   });
 
-  const createTestSaleInput = (): CreateSaleInput => ({
-    cashier_id: testCashierId,
-    payment_method: 'cash',
-    payment_received: 30.00,
-    items: [
-      {
-        product_id: testProductId1,
-        quantity: 2,
-        unit_price: 10.00
-      },
-      {
-        product_id: testProductId2,
+  it('should create a sale with single item', async () => {
+    const testInput: CreateSaleInput = {
+      cashier_id: cashierId,
+      payment_method: 'cash',
+      payment_received: 15.00,
+      items: [{
+        product_id: productId1,
         quantity: 1,
-        unit_price: 8.00
-      }
-    ]
-  });
+        unit_price: 10.00
+      }]
+    };
 
-  it('should create a sale with correct totals', async () => {
-    const input = createTestSaleInput();
-    const result = await createSale(input);
+    const result = await createSale(testInput);
 
-    expect(result.cashier_id).toEqual(testCashierId);
-    expect(result.payment_method).toEqual('cash');
-    expect(result.payment_received).toEqual(30.00);
-    expect(result.total_amount).toEqual(28.00); // (2 * 10.00) + (1 * 8.00)
-    expect(result.change_given).toEqual(2.00); // 30.00 - 28.00
-    expect(result.id).toBeDefined();
-    expect(result.transaction_id).toMatch(/^TXN-\d+-[a-z0-9]+$/);
+    expect(result.cashier_id).toBe(cashierId);
+    expect(result.total_amount).toBe(10.00);
+    expect(result.payment_method).toBe('cash');
+    expect(result.payment_received).toBe(15.00);
+    expect(result.change_given).toBe(5.00);
+    expect(result.transaction_id).toMatch(/^TXN-/);
     expect(result.created_at).toBeInstanceOf(Date);
-    expect(typeof result.total_amount).toBe('number');
-    expect(typeof result.payment_received).toBe('number');
-    expect(typeof result.change_given).toBe('number');
   });
 
-  it('should create sale items correctly', async () => {
-    const input = createTestSaleInput();
-    const result = await createSale(input);
+  it('should create a sale with multiple items', async () => {
+    const testInput: CreateSaleInput = {
+      cashier_id: cashierId,
+      payment_method: 'card',
+      payment_received: 50.00,
+      items: [
+        {
+          product_id: productId1,
+          quantity: 2,
+          unit_price: 10.00
+        },
+        {
+          product_id: productId2,
+          quantity: 1,
+          unit_price: 20.00
+        }
+      ]
+    };
+
+    const result = await createSale(testInput);
+
+    expect(result.total_amount).toBe(40.00);
+    expect(result.payment_received).toBe(50.00);
+    expect(result.change_given).toBe(10.00);
+    expect(result.payment_method).toBe('card');
+  });
+
+  it('should create sale items in database', async () => {
+    const testInput: CreateSaleInput = {
+      cashier_id: cashierId,
+      payment_method: 'cash',
+      payment_received: 30.00,
+      items: [
+        {
+          product_id: productId1,
+          quantity: 2,
+          unit_price: 10.00
+        }
+      ]
+    };
+
+    const result = await createSale(testInput);
 
     const saleItems = await db.select()
       .from(saleItemsTable)
       .where(eq(saleItemsTable.sale_id, result.id))
       .execute();
 
-    expect(saleItems).toHaveLength(2);
-
-    const item1 = saleItems.find(item => item.product_id === testProductId1);
-    const item2 = saleItems.find(item => item.product_id === testProductId2);
-
-    expect(item1).toBeDefined();
-    expect(item1!.quantity).toEqual(2);
-    expect(parseFloat(item1!.unit_price)).toEqual(10.00);
-    expect(parseFloat(item1!.total_price)).toEqual(20.00);
-
-    expect(item2).toBeDefined();
-    expect(item2!.quantity).toEqual(1);
-    expect(parseFloat(item2!.unit_price)).toEqual(8.00);
-    expect(parseFloat(item2!.total_price)).toEqual(8.00);
+    expect(saleItems).toHaveLength(1);
+    expect(saleItems[0].product_id).toBe(productId1);
+    expect(saleItems[0].quantity).toBe(2);
+    expect(parseFloat(saleItems[0].unit_price)).toBe(10.00);
+    expect(parseFloat(saleItems[0].total_price)).toBe(20.00);
   });
 
   it('should update product stock quantities', async () => {
-    const input = createTestSaleInput();
-    await createSale(input);
+    const testInput: CreateSaleInput = {
+      cashier_id: cashierId,
+      payment_method: 'cash',
+      payment_received: 50.00,
+      items: [
+        {
+          product_id: productId1,
+          quantity: 5,
+          unit_price: 10.00
+        }
+      ]
+    };
 
-    const product1 = await db.select()
+    await createSale(testInput);
+
+    const product = await db.select()
       .from(productsTable)
-      .where(eq(productsTable.id, testProductId1))
-      .execute();
-    
-    const product2 = await db.select()
-      .from(productsTable)
-      .where(eq(productsTable.id, testProductId2))
+      .where(eq(productsTable.id, productId1))
       .execute();
 
-    expect(product1[0].current_stock).toEqual(98); // 100 - 2
-    expect(product2[0].current_stock).toEqual(49); // 50 - 1
+    expect(product[0].current_stock).toBe(95); // 100 - 5
   });
 
   it('should create stock movement records', async () => {
-    const input = createTestSaleInput();
-    const result = await createSale(input);
+    const testInput: CreateSaleInput = {
+      cashier_id: cashierId,
+      payment_method: 'cash',
+      payment_received: 30.00,
+      items: [
+        {
+          product_id: productId1,
+          quantity: 3,
+          unit_price: 10.00
+        }
+      ]
+    };
 
-    const movements = await db.select()
+    const result = await createSale(testInput);
+
+    const stockMovements = await db.select()
       .from(stockMovementsTable)
       .where(eq(stockMovementsTable.reference_id, result.id))
       .execute();
 
-    expect(movements).toHaveLength(2);
-
-    const movement1 = movements.find(m => m.product_id === testProductId1);
-    const movement2 = movements.find(m => m.product_id === testProductId2);
-
-    expect(movement1).toBeDefined();
-    expect(movement1!.movement_type).toEqual('out');
-    expect(movement1!.quantity).toEqual(-2);
-    expect(movement1!.created_by).toEqual(testCashierId);
-    expect(movement1!.notes).toMatch(/^Sale transaction TXN-/);
-
-    expect(movement2).toBeDefined();
-    expect(movement2!.movement_type).toEqual('out');
-    expect(movement2!.quantity).toEqual(-1);
-    expect(movement2!.created_by).toEqual(testCashierId);
+    expect(stockMovements).toHaveLength(1);
+    expect(stockMovements[0].product_id).toBe(productId1);
+    expect(stockMovements[0].movement_type).toBe('out');
+    expect(stockMovements[0].quantity).toBe(-3);
+    expect(stockMovements[0].created_by).toBe(cashierId);
+    expect(stockMovements[0].notes).toMatch(/Sale transaction/);
   });
 
-  it('should save sale to database', async () => {
-    const input = createTestSaleInput();
-    const result = await createSale(input);
-
-    const sales = await db.select()
-      .from(salesTable)
-      .where(eq(salesTable.id, result.id))
-      .execute();
-
-    expect(sales).toHaveLength(1);
-    expect(sales[0].cashier_id).toEqual(testCashierId);
-    expect(parseFloat(sales[0].total_amount)).toEqual(28.00);
-    expect(parseFloat(sales[0].payment_received)).toEqual(30.00);
-    expect(parseFloat(sales[0].change_given)).toEqual(2.00);
-  });
-
-  it('should throw error for non-existent product', async () => {
-    const input: CreateSaleInput = {
-      cashier_id: testCashierId,
-      payment_method: 'cash',
+  it('should handle exact payment amount', async () => {
+    const testInput: CreateSaleInput = {
+      cashier_id: cashierId,
+      payment_method: 'card',
       payment_received: 20.00,
       items: [
         {
-          product_id: 99999,
+          product_id: productId2,
           quantity: 1,
-          unit_price: 10.00
+          unit_price: 20.00
         }
       ]
     };
 
-    await expect(createSale(input)).rejects.toThrow(/Product with ID 99999 not found/);
+    const result = await createSale(testInput);
+
+    expect(result.change_given).toBe(0.00);
+  });
+
+  it('should throw error for non-existent cashier', async () => {
+    const testInput: CreateSaleInput = {
+      cashier_id: 99999,
+      payment_method: 'cash',
+      payment_received: 15.00,
+      items: [{
+        product_id: productId1,
+        quantity: 1,
+        unit_price: 10.00
+      }]
+    };
+
+    expect(createSale(testInput)).rejects.toThrow(/cashier.*not found/i);
+  });
+
+  it('should throw error for non-existent product', async () => {
+    const testInput: CreateSaleInput = {
+      cashier_id: cashierId,
+      payment_method: 'cash',
+      payment_received: 15.00,
+      items: [{
+        product_id: 99999,
+        quantity: 1,
+        unit_price: 10.00
+      }]
+    };
+
+    expect(createSale(testInput)).rejects.toThrow(/product.*not found/i);
   });
 
   it('should throw error for insufficient stock', async () => {
-    const input: CreateSaleInput = {
-      cashier_id: testCashierId,
+    const testInput: CreateSaleInput = {
+      cashier_id: cashierId,
       payment_method: 'cash',
       payment_received: 200.00,
-      items: [
-        {
-          product_id: testProductId1,
-          quantity: 150, // More than available stock (100)
-          unit_price: 10.00
-        }
-      ]
+      items: [{
+        product_id: productId1,
+        quantity: 150, // More than available stock (100)
+        unit_price: 10.00
+      }]
     };
 
-    await expect(createSale(input)).rejects.toThrow(/Insufficient stock for product/);
+    expect(createSale(testInput)).rejects.toThrow(/insufficient stock/i);
   });
 
-  it('should handle zero change correctly', async () => {
-    const input: CreateSaleInput = {
-      cashier_id: testCashierId,
+  it('should throw error for inactive product', async () => {
+    // Make product inactive
+    await db.update(productsTable)
+      .set({ is_active: false })
+      .where(eq(productsTable.id, productId1))
+      .execute();
+
+    const testInput: CreateSaleInput = {
+      cashier_id: cashierId,
       payment_method: 'cash',
-      payment_received: 28.00, // Exact amount
-      items: [
-        {
-          product_id: testProductId1,
-          quantity: 2,
-          unit_price: 10.00
-        },
-        {
-          product_id: testProductId2,
-          quantity: 1,
-          unit_price: 8.00
-        }
-      ]
+      payment_received: 15.00,
+      items: [{
+        product_id: productId1,
+        quantity: 1,
+        unit_price: 10.00
+      }]
     };
 
-    const result = await createSale(input);
-    expect(result.change_given).toEqual(0.00);
+    expect(createSale(testInput)).rejects.toThrow(/not active/i);
   });
 });

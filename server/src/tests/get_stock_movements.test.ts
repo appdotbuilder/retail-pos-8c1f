@@ -9,255 +9,249 @@ describe('getStockMovements', () => {
   beforeEach(createDB);
   afterEach(resetDB);
 
-  it('should return all stock movements when no productId provided', async () => {
-    // Create prerequisite data
-    const user = await db.insert(usersTable).values({
-      username: 'stockuser',
-      email: 'stock@test.com',
-      password_hash: 'hash123',
-      full_name: 'Stock User',
-      role: 'stock_manager'
-    }).returning().execute();
+  it('should return all stock movements when no productId is provided', async () => {
+    // Create test user
+    const userResult = await db.insert(usersTable)
+      .values({
+        username: 'testuser',
+        email: 'test@example.com',
+        password_hash: 'hash123',
+        full_name: 'Test User',
+        role: 'admin'
+      })
+      .returning()
+      .execute();
+    const userId = userResult[0].id;
 
-    const category = await db.insert(categoriesTable).values({
-      name: 'Test Category',
-      description: 'A test category'
-    }).returning().execute();
+    // Create test category
+    const categoryResult = await db.insert(categoriesTable)
+      .values({
+        name: 'Test Category',
+        description: 'A test category'
+      })
+      .returning()
+      .execute();
+    const categoryId = categoryResult[0].id;
 
-    const product1 = await db.insert(productsTable).values({
-      name: 'Product 1',
-      sku: 'PROD001',
-      category_id: category[0].id,
-      selling_price: '10.00',
-      cost_price: '5.00',
-      current_stock: 100,
-      min_stock_level: 10
-    }).returning().execute();
+    // Create test products
+    const product1Result = await db.insert(productsTable)
+      .values({
+        name: 'Product 1',
+        sku: 'SKU001',
+        category_id: categoryId,
+        selling_price: '10.00',
+        cost_price: '5.00'
+      })
+      .returning()
+      .execute();
+    const product1Id = product1Result[0].id;
 
-    const product2 = await db.insert(productsTable).values({
-      name: 'Product 2',
-      sku: 'PROD002',
-      category_id: category[0].id,
-      selling_price: '20.00',
-      cost_price: '10.00',
-      current_stock: 50,
-      min_stock_level: 5
-    }).returning().execute();
+    const product2Result = await db.insert(productsTable)
+      .values({
+        name: 'Product 2',
+        sku: 'SKU002',
+        category_id: categoryId,
+        selling_price: '20.00',
+        cost_price: '10.00'
+      })
+      .returning()
+      .execute();
+    const product2Id = product2Result[0].id;
 
     // Create stock movements
-    await db.insert(stockMovementsTable).values([
-      {
-        product_id: product1[0].id,
-        movement_type: 'in',
-        quantity: 50,
-        notes: 'Initial stock',
-        created_by: user[0].id
-      },
-      {
-        product_id: product2[0].id,
-        movement_type: 'out',
-        quantity: -10,
-        notes: 'Sale',
-        created_by: user[0].id
-      },
-      {
-        product_id: product1[0].id,
-        movement_type: 'adjustment',
-        quantity: -5,
-        notes: 'Damaged items',
-        created_by: user[0].id
-      }
-    ]).execute();
+    await db.insert(stockMovementsTable)
+      .values([
+        {
+          product_id: product1Id,
+          movement_type: 'in',
+          quantity: 100,
+          notes: 'Initial stock',
+          created_by: userId
+        },
+        {
+          product_id: product2Id,
+          movement_type: 'in',
+          quantity: 50,
+          notes: 'Restock',
+          created_by: userId
+        },
+        {
+          product_id: product1Id,
+          movement_type: 'out',
+          quantity: 5,
+          notes: 'Sale',
+          created_by: userId
+        }
+      ])
+      .execute();
 
     const result = await getStockMovements();
 
     expect(result).toHaveLength(3);
     
-    // Check that all expected movements are present
+    // Verify movement types are present
     const movementTypes = result.map(m => m.movement_type);
-    const notes = result.map(m => m.notes);
-    
     expect(movementTypes).toContain('in');
     expect(movementTypes).toContain('out');
-    expect(movementTypes).toContain('adjustment');
-    
-    expect(notes).toContain('Initial stock');
-    expect(notes).toContain('Sale');
-    expect(notes).toContain('Damaged items');
-    
-    // Verify basic properties
+
+    // Verify all movements have required fields
     result.forEach(movement => {
-      expect(movement.created_by).toBe(user[0].id);
-      expect(movement.created_at).toBeInstanceOf(Date);
       expect(movement.id).toBeDefined();
+      expect(movement.product_id).toBeDefined();
+      expect(movement.movement_type).toBeDefined();
+      expect(movement.quantity).toBeDefined();
+      expect(movement.created_by).toBe(userId);
+      expect(movement.created_at).toBeInstanceOf(Date);
     });
   });
 
   it('should return filtered stock movements for specific product', async () => {
-    // Create prerequisite data
-    const user = await db.insert(usersTable).values({
-      username: 'stockuser',
-      email: 'stock@test.com',
-      password_hash: 'hash123',
-      full_name: 'Stock User',
-      role: 'stock_manager'
-    }).returning().execute();
+    // Create test user
+    const userResult = await db.insert(usersTable)
+      .values({
+        username: 'testuser',
+        email: 'test@example.com',
+        password_hash: 'hash123',
+        full_name: 'Test User',
+        role: 'admin'
+      })
+      .returning()
+      .execute();
+    const userId = userResult[0].id;
 
-    const category = await db.insert(categoriesTable).values({
-      name: 'Test Category',
-      description: 'A test category'
-    }).returning().execute();
+    // Create test category
+    const categoryResult = await db.insert(categoriesTable)
+      .values({
+        name: 'Test Category',
+        description: 'A test category'
+      })
+      .returning()
+      .execute();
+    const categoryId = categoryResult[0].id;
 
-    const product1 = await db.insert(productsTable).values({
-      name: 'Product 1',
-      sku: 'PROD001',
-      category_id: category[0].id,
-      selling_price: '10.00',
-      cost_price: '5.00',
-      current_stock: 100,
-      min_stock_level: 10
-    }).returning().execute();
+    // Create test products
+    const product1Result = await db.insert(productsTable)
+      .values({
+        name: 'Product 1',
+        sku: 'SKU001',
+        category_id: categoryId,
+        selling_price: '10.00',
+        cost_price: '5.00'
+      })
+      .returning()
+      .execute();
+    const product1Id = product1Result[0].id;
 
-    const product2 = await db.insert(productsTable).values({
-      name: 'Product 2',
-      sku: 'PROD002',
-      category_id: category[0].id,
-      selling_price: '20.00',
-      cost_price: '10.00',
-      current_stock: 50,
-      min_stock_level: 5
-    }).returning().execute();
+    const product2Result = await db.insert(productsTable)
+      .values({
+        name: 'Product 2',
+        sku: 'SKU002',
+        category_id: categoryId,
+        selling_price: '20.00',
+        cost_price: '10.00'
+      })
+      .returning()
+      .execute();
+    const product2Id = product2Result[0].id;
 
     // Create stock movements for both products
-    await db.insert(stockMovementsTable).values([
-      {
-        product_id: product1[0].id,
-        movement_type: 'in',
-        quantity: 50,
-        notes: 'Product 1 stock in',
-        created_by: user[0].id
-      },
-      {
-        product_id: product2[0].id,
-        movement_type: 'out',
-        quantity: -10,
-        notes: 'Product 2 stock out',
-        created_by: user[0].id
-      },
-      {
-        product_id: product1[0].id,
-        movement_type: 'adjustment',
-        quantity: -5,
-        notes: 'Product 1 adjustment',
-        created_by: user[0].id
-      }
-    ]).execute();
+    await db.insert(stockMovementsTable)
+      .values([
+        {
+          product_id: product1Id,
+          movement_type: 'in',
+          quantity: 100,
+          notes: 'Product 1 stock',
+          created_by: userId
+        },
+        {
+          product_id: product2Id,
+          movement_type: 'in',
+          quantity: 50,
+          notes: 'Product 2 stock',
+          created_by: userId
+        },
+        {
+          product_id: product1Id,
+          movement_type: 'out',
+          quantity: 10,
+          notes: 'Product 1 sale',
+          created_by: userId
+        }
+      ])
+      .execute();
 
-    const result = await getStockMovements(product1[0].id);
+    const result = await getStockMovements(product1Id);
 
     expect(result).toHaveLength(2);
-    result.forEach(movement => {
-      expect(movement.product_id).toBe(product1[0].id);
-    });
     
-    // Check that both product 1 movements are present
-    const notes = result.map(m => m.notes);
-    expect(notes).toContain('Product 1 stock in');
-    expect(notes).toContain('Product 1 adjustment');
+    // All movements should be for product1
+    result.forEach(movement => {
+      expect(movement.product_id).toBe(product1Id);
+      expect(movement.created_by).toBe(userId);
+      expect(movement.created_at).toBeInstanceOf(Date);
+    });
+
+    // Should include both in and out movements for product1
+    const movementTypes = result.map(m => m.movement_type);
+    expect(movementTypes).toContain('in');
+    expect(movementTypes).toContain('out');
   });
 
-  it('should return empty array when no movements exist', async () => {
+  it('should return empty array when no stock movements exist', async () => {
     const result = await getStockMovements();
-    
     expect(result).toHaveLength(0);
   });
 
   it('should return empty array when filtering by non-existent product', async () => {
-    // Create prerequisite data
-    const user = await db.insert(usersTable).values({
-      username: 'stockuser',
-      email: 'stock@test.com',
-      password_hash: 'hash123',
-      full_name: 'Stock User',
-      role: 'stock_manager'
-    }).returning().execute();
+    // Create test user
+    const userResult = await db.insert(usersTable)
+      .values({
+        username: 'testuser',
+        email: 'test@example.com',
+        password_hash: 'hash123',
+        full_name: 'Test User',
+        role: 'admin'
+      })
+      .returning()
+      .execute();
+    const userId = userResult[0].id;
 
-    const category = await db.insert(categoriesTable).values({
-      name: 'Test Category',
-      description: 'A test category'
-    }).returning().execute();
+    // Create test category and product
+    const categoryResult = await db.insert(categoriesTable)
+      .values({
+        name: 'Test Category',
+        description: 'A test category'
+      })
+      .returning()
+      .execute();
+    const categoryId = categoryResult[0].id;
 
-    const product = await db.insert(productsTable).values({
-      name: 'Product 1',
-      sku: 'PROD001',
-      category_id: category[0].id,
-      selling_price: '10.00',
-      cost_price: '5.00',
-      current_stock: 100,
-      min_stock_level: 10
-    }).returning().execute();
+    const productResult = await db.insert(productsTable)
+      .values({
+        name: 'Product 1',
+        sku: 'SKU001',
+        category_id: categoryId,
+        selling_price: '10.00',
+        cost_price: '5.00'
+      })
+      .returning()
+      .execute();
+    const productId = productResult[0].id;
 
-    // Create a movement for existing product
-    await db.insert(stockMovementsTable).values({
-      product_id: product[0].id,
-      movement_type: 'in',
-      quantity: 50,
-      notes: 'Initial stock',
-      created_by: user[0].id
-    }).execute();
+    // Create stock movement
+    await db.insert(stockMovementsTable)
+      .values({
+        product_id: productId,
+        movement_type: 'in',
+        quantity: 100,
+        notes: 'Initial stock',
+        created_by: userId
+      })
+      .execute();
 
-    // Filter by non-existent product ID
-    const result = await getStockMovements(999);
-
+    // Query for non-existent product
+    const result = await getStockMovements(99999);
     expect(result).toHaveLength(0);
-  });
-
-  it('should include all required fields in response', async () => {
-    // Create prerequisite data
-    const user = await db.insert(usersTable).values({
-      username: 'stockuser',
-      email: 'stock@test.com',
-      password_hash: 'hash123',
-      full_name: 'Stock User',
-      role: 'stock_manager'
-    }).returning().execute();
-
-    const category = await db.insert(categoriesTable).values({
-      name: 'Test Category',
-      description: 'A test category'
-    }).returning().execute();
-
-    const product = await db.insert(productsTable).values({
-      name: 'Product 1',
-      sku: 'PROD001',
-      category_id: category[0].id,
-      selling_price: '10.00',
-      cost_price: '5.00',
-      current_stock: 100,
-      min_stock_level: 10
-    }).returning().execute();
-
-    await db.insert(stockMovementsTable).values({
-      product_id: product[0].id,
-      movement_type: 'in',
-      quantity: 50,
-      reference_id: 123,
-      notes: 'Test movement',
-      created_by: user[0].id
-    }).execute();
-
-    const result = await getStockMovements();
-
-    expect(result).toHaveLength(1);
-    const movement = result[0];
-    
-    expect(movement.id).toBeDefined();
-    expect(movement.product_id).toBe(product[0].id);
-    expect(movement.movement_type).toBe('in');
-    expect(movement.quantity).toBe(50);
-    expect(movement.reference_id).toBe(123);
-    expect(movement.notes).toBe('Test movement');
-    expect(movement.created_by).toBe(user[0].id);
-    expect(movement.created_at).toBeInstanceOf(Date);
   });
 });

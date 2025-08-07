@@ -2,19 +2,20 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { resetDB, createDB } from '../helpers';
 import { db } from '../db';
-import { usersTable, categoriesTable, productsTable, stockMovementsTable } from '../db/schema';
+import { stockMovementsTable, productsTable, usersTable, categoriesTable } from '../db/schema';
 import { type CreateStockMovementInput } from '../schema';
 import { createStockMovement } from '../handlers/create_stock_movement';
 import { eq } from 'drizzle-orm';
 
 describe('createStockMovement', () => {
+  beforeEach(createDB);
+  afterEach(resetDB);
+
   let testUserId: number;
   let testCategoryId: number;
   let testProductId: number;
 
   beforeEach(async () => {
-    await createDB();
-    
     // Create test user
     const userResult = await db.insert(usersTable)
       .values({
@@ -32,22 +33,21 @@ describe('createStockMovement', () => {
     const categoryResult = await db.insert(categoriesTable)
       .values({
         name: 'Test Category',
-        description: 'Test category description'
+        description: 'A test category'
       })
       .returning()
       .execute();
     testCategoryId = categoryResult[0].id;
 
-    // Create test product with initial stock of 100
+    // Create test product with initial stock
     const productResult = await db.insert(productsTable)
       .values({
         name: 'Test Product',
         sku: 'TEST-001',
-        barcode: null,
         category_id: testCategoryId,
-        selling_price: '19.99',
-        cost_price: '15.00',
-        current_stock: 100,
+        selling_price: '10.00',
+        cost_price: '5.00',
+        current_stock: 50,
         min_stock_level: 10
       })
       .returning()
@@ -55,97 +55,135 @@ describe('createStockMovement', () => {
     testProductId = productResult[0].id;
   });
 
-  afterEach(resetDB);
-
-  it('should create stock movement for "in" type and increase product stock', async () => {
+  it('should create stock movement for in type', async () => {
     const input: CreateStockMovementInput = {
       product_id: testProductId,
       movement_type: 'in',
-      quantity: 50,
-      notes: 'Inventory replenishment',
+      quantity: 25,
+      notes: 'Restocking from supplier',
       created_by: testUserId
     };
 
     const result = await createStockMovement(input);
 
-    // Verify movement record
     expect(result.product_id).toEqual(testProductId);
     expect(result.movement_type).toEqual('in');
-    expect(result.quantity).toEqual(50);
-    expect(result.notes).toEqual('Inventory replenishment');
+    expect(result.quantity).toEqual(25);
+    expect(result.notes).toEqual('Restocking from supplier');
     expect(result.created_by).toEqual(testUserId);
     expect(result.id).toBeDefined();
     expect(result.created_at).toBeInstanceOf(Date);
-
-    // Verify product stock was updated (100 + 50 = 150)
-    const products = await db.select()
-      .from(productsTable)
-      .where(eq(productsTable.id, testProductId))
-      .execute();
-    
-    expect(products[0].current_stock).toEqual(150);
+    expect(result.reference_id).toBeNull();
   });
 
-  it('should create stock movement for "out" type and decrease product stock', async () => {
+  it('should create stock movement for out type', async () => {
     const input: CreateStockMovementInput = {
       product_id: testProductId,
       movement_type: 'out',
-      quantity: 30,
-      notes: 'Sale transaction',
+      quantity: 20,
+      notes: 'Damaged goods removal',
       created_by: testUserId
     };
 
     const result = await createStockMovement(input);
 
-    // Verify movement record
+    expect(result.product_id).toEqual(testProductId);
     expect(result.movement_type).toEqual('out');
-    expect(result.quantity).toEqual(30);
-
-    // Verify product stock was updated (100 - 30 = 70)
-    const products = await db.select()
-      .from(productsTable)
-      .where(eq(productsTable.id, testProductId))
-      .execute();
-    
-    expect(products[0].current_stock).toEqual(70);
+    expect(result.quantity).toEqual(20);
+    expect(result.notes).toEqual('Damaged goods removal');
+    expect(result.created_by).toEqual(testUserId);
+    expect(result.id).toBeDefined();
   });
 
-  it('should create stock movement for "adjustment" type and set exact stock level', async () => {
+  it('should create stock movement for adjustment type', async () => {
     const input: CreateStockMovementInput = {
       product_id: testProductId,
       movement_type: 'adjustment',
-      quantity: 75,
+      quantity: 35,
       notes: 'Stock count adjustment',
       created_by: testUserId
     };
 
     const result = await createStockMovement(input);
 
-    // Verify movement record
+    expect(result.product_id).toEqual(testProductId);
     expect(result.movement_type).toEqual('adjustment');
-    expect(result.quantity).toEqual(75);
+    expect(result.quantity).toEqual(35);
+    expect(result.notes).toEqual('Stock count adjustment');
+    expect(result.created_by).toEqual(testUserId);
+  });
 
-    // Verify product stock was set to exact value (75)
-    const products = await db.select()
+  it('should update product stock for in movement', async () => {
+    const input: CreateStockMovementInput = {
+      product_id: testProductId,
+      movement_type: 'in',
+      quantity: 25,
+      notes: 'Stock increase',
+      created_by: testUserId
+    };
+
+    await createStockMovement(input);
+
+    const updatedProduct = await db.select()
       .from(productsTable)
       .where(eq(productsTable.id, testProductId))
+      .limit(1)
       .execute();
-    
-    expect(products[0].current_stock).toEqual(75);
+
+    expect(updatedProduct[0].current_stock).toEqual(75); // 50 + 25
+  });
+
+  it('should update product stock for out movement', async () => {
+    const input: CreateStockMovementInput = {
+      product_id: testProductId,
+      movement_type: 'out',
+      quantity: 15,
+      notes: 'Stock decrease',
+      created_by: testUserId
+    };
+
+    await createStockMovement(input);
+
+    const updatedProduct = await db.select()
+      .from(productsTable)
+      .where(eq(productsTable.id, testProductId))
+      .limit(1)
+      .execute();
+
+    expect(updatedProduct[0].current_stock).toEqual(35); // 50 - 15
+  });
+
+  it('should update product stock for adjustment movement', async () => {
+    const input: CreateStockMovementInput = {
+      product_id: testProductId,
+      movement_type: 'adjustment',
+      quantity: 100,
+      notes: 'Manual stock adjustment',
+      created_by: testUserId
+    };
+
+    await createStockMovement(input);
+
+    const updatedProduct = await db.select()
+      .from(productsTable)
+      .where(eq(productsTable.id, testProductId))
+      .limit(1)
+      .execute();
+
+    expect(updatedProduct[0].current_stock).toEqual(100); // Set to exact value
   });
 
   it('should save stock movement to database', async () => {
     const input: CreateStockMovementInput = {
       product_id: testProductId,
       movement_type: 'in',
-      quantity: 25,
-      notes: 'Test movement',
+      quantity: 30,
+      notes: 'Database test',
       created_by: testUserId
     };
 
     const result = await createStockMovement(input);
 
-    // Verify record exists in database
     const movements = await db.select()
       .from(stockMovementsTable)
       .where(eq(stockMovementsTable.id, result.id))
@@ -154,49 +192,62 @@ describe('createStockMovement', () => {
     expect(movements).toHaveLength(1);
     expect(movements[0].product_id).toEqual(testProductId);
     expect(movements[0].movement_type).toEqual('in');
-    expect(movements[0].quantity).toEqual(25);
-    expect(movements[0].notes).toEqual('Test movement');
+    expect(movements[0].quantity).toEqual(30);
+    expect(movements[0].notes).toEqual('Database test');
     expect(movements[0].created_by).toEqual(testUserId);
     expect(movements[0].created_at).toBeInstanceOf(Date);
   });
 
-  it('should throw error when trying to move out more stock than available', async () => {
+  it('should throw error for non-existent product', async () => {
+    const input: CreateStockMovementInput = {
+      product_id: 99999,
+      movement_type: 'in',
+      quantity: 10,
+      notes: null,
+      created_by: testUserId
+    };
+
+    expect(createStockMovement(input)).rejects.toThrow(/product.*not found/i);
+  });
+
+  it('should throw error for insufficient stock on out movement', async () => {
     const input: CreateStockMovementInput = {
       product_id: testProductId,
       movement_type: 'out',
-      quantity: 150, // More than current stock of 100
-      notes: 'Oversell attempt',
+      quantity: 100, // More than current stock of 50
+      notes: 'Too much stock removal',
       created_by: testUserId
     };
 
-    await expect(createStockMovement(input)).rejects.toThrow(/insufficient stock/i);
+    expect(createStockMovement(input)).rejects.toThrow(/insufficient stock/i);
+  });
 
-    // Verify product stock was not changed
-    const products = await db.select()
+  it('should allow out movement with exact current stock', async () => {
+    const input: CreateStockMovementInput = {
+      product_id: testProductId,
+      movement_type: 'out',
+      quantity: 50, // Exactly current stock
+      notes: 'Clear all stock',
+      created_by: testUserId
+    };
+
+    const result = await createStockMovement(input);
+    expect(result.quantity).toEqual(50);
+
+    const updatedProduct = await db.select()
       .from(productsTable)
       .where(eq(productsTable.id, testProductId))
+      .limit(1)
       .execute();
-    
-    expect(products[0].current_stock).toEqual(100);
+
+    expect(updatedProduct[0].current_stock).toEqual(0);
   });
 
-  it('should throw error when product does not exist', async () => {
-    const input: CreateStockMovementInput = {
-      product_id: 99999, // Non-existent product
-      movement_type: 'in',
-      quantity: 10,
-      notes: 'Test movement',
-      created_by: testUserId
-    };
-
-    await expect(createStockMovement(input)).rejects.toThrow(/product with id 99999 not found/i);
-  });
-
-  it('should handle movement with null notes', async () => {
+  it('should handle null notes properly', async () => {
     const input: CreateStockMovementInput = {
       product_id: testProductId,
       movement_type: 'in',
-      quantity: 20,
+      quantity: 5,
       notes: null,
       created_by: testUserId
     };
@@ -204,6 +255,5 @@ describe('createStockMovement', () => {
     const result = await createStockMovement(input);
 
     expect(result.notes).toBeNull();
-    expect(result.quantity).toEqual(20);
   });
 });

@@ -13,15 +13,15 @@ export async function getProducts(): Promise<Product[]> {
       .where(eq(productsTable.is_active, true))
       .execute();
 
-    // Transform the joined results to match Product schema
+    // Convert numeric fields back to numbers and map joined data
     return results.map(result => ({
       id: result.products.id,
       name: result.products.name,
       sku: result.products.sku,
       barcode: result.products.barcode,
       category_id: result.products.category_id,
-      selling_price: parseFloat(result.products.selling_price), // Convert numeric to number
-      cost_price: parseFloat(result.products.cost_price), // Convert numeric to number
+      selling_price: parseFloat(result.products.selling_price),
+      cost_price: parseFloat(result.products.cost_price),
       current_stock: result.products.current_stock,
       min_stock_level: result.products.min_stock_level,
       is_active: result.products.is_active,
