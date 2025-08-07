@@ -438,8 +438,8 @@ export function ProductManagement({ products, categories, onProductsChange, onCa
                           </TableCell>
                           <TableCell>
                             <div>
-                              <p className="font-medium">${product.selling_price.toFixed(2)}</p>
-                              <p className="text-sm text-gray-500">Cost: ${product.cost_price.toFixed(2)}</p>
+                              <p className="font-medium">Rp {product.selling_price.toFixed(2)}</p>
+                              <p className="text-sm text-gray-500">Cost: Rp {product.cost_price.toFixed(2)}</p>
                             </div>
                           </TableCell>
                           <TableCell>

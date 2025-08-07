@@ -234,7 +234,7 @@ export function SalesModule({ products, categories, currentUser, onSaleComplete 
                 <div className="flex justify-between items-center">
                   <div>
                     <p className="text-lg font-bold text-green-600">
-                      ${product.selling_price.toFixed(2)}
+                      Rp {product.selling_price.toFixed(2)}
                     </p>
                   </div>
                   
@@ -282,7 +282,7 @@ export function SalesModule({ products, categories, currentUser, onSaleComplete 
                     <div key={item.product.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">{item.product.name}</p>
-                        <p className="text-xs text-gray-500">${item.product.selling_price.toFixed(2)} each</p>
+                        <p className="text-xs text-gray-500">Rp {item.product.selling_price.toFixed(2)} each</p>
                       </div>
                       
                       <div className="flex items-center space-x-2">
@@ -315,7 +315,7 @@ export function SalesModule({ products, categories, currentUser, onSaleComplete 
                       </div>
                       
                       <div className="text-right ml-2">
-                        <p className="font-semibold text-sm">${item.subtotal.toFixed(2)}</p>
+                        <p className="font-semibold text-sm">Rp {item.subtotal.toFixed(2)}</p>
                       </div>
                     </div>
                   ))}
@@ -327,11 +327,11 @@ export function SalesModule({ products, categories, currentUser, onSaleComplete 
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span>Subtotal:</span>
-                    <span className="font-semibold">${subtotal.toFixed(2)}</span>
+                    <span className="font-semibold">Rp {subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-lg font-bold">
                     <span>Total:</span>
-                    <span>${total.toFixed(2)}</span>
+                    <span>Rp {total.toFixed(2)}</span>
                   </div>
                 </div>
 
@@ -376,7 +376,7 @@ export function SalesModule({ products, categories, currentUser, onSaleComplete 
                     <div className="flex justify-between text-sm">
                       <span>Change:</span>
                       <span className={change < 0 ? 'text-red-600' : 'text-green-600'}>
-                        ${change.toFixed(2)}
+                        Rp {change.toFixed(2)}
                       </span>
                     </div>
                   )}
@@ -447,10 +447,10 @@ export function SalesModule({ products, categories, currentUser, onSaleComplete 
                       <div>
                         <div>{item.product.name}</div>
                         <div className="text-xs text-gray-500">
-                          {item.quantity} × ${item.product.selling_price.toFixed(2)}
+                          {item.quantity} × Rp {item.product.selling_price.toFixed(2)}
                         </div>
                       </div>
-                      <div>${item.subtotal.toFixed(2)}</div>
+                      <div>Rp {item.subtotal.toFixed(2)}</div>
                     </div>
                   ))}
                 </div>
@@ -459,19 +459,19 @@ export function SalesModule({ products, categories, currentUser, onSaleComplete 
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span>Subtotal:</span>
-                    <span>${lastSale.total_amount.toFixed(2)}</span>
+                    <span>Rp {lastSale.total_amount.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between font-bold">
                     <span>Total:</span>
-                    <span>${lastSale.total_amount.toFixed(2)}</span>
+                    <span>Rp {lastSale.total_amount.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Payment ({lastSale.payment_method}):</span>
-                    <span>${lastSale.payment_received.toFixed(2)}</span>
+                    <span>Rp {lastSale.payment_received.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Change:</span>
-                    <span>${lastSale.change_given.toFixed(2)}</span>
+                    <span>Rp {lastSale.change_given.toFixed(2)}</span>
                   </div>
                 </div>
 

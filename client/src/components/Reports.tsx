@@ -94,7 +94,7 @@ export function Reports({ products }: ReportsProps) {
   }, [loadSalesReport]);
 
   // Format currency
-  const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`;
+  const formatCurrency = (amount: number) => `Rp ${amount.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
   // Calculate metrics
   const avgDailySales = reportData ? reportData.total_sales / salesData.length : 0;
