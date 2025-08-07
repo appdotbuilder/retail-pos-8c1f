@@ -1,0 +1,73 @@
+
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { resetDB, createDB } from '../helpers';
+import { db } from '../db';
+import { categoriesTable } from '../db/schema';
+import { type CreateCategoryInput } from '../schema';
+import { createCategory } from '../handlers/create_category';
+import { eq } from 'drizzle-orm';
+
+// Simple test input
+const testInput: CreateCategoryInput = {
+  name: 'Electronics',
+  description: 'Electronic devices and accessories'
+};
+
+// Test input with null description
+const testInputNullDesc: CreateCategoryInput = {
+  name: 'Books',
+  description: null
+};
+
+describe('createCategory', () => {
+  beforeEach(createDB);
+  afterEach(resetDB);
+
+  it('should create a category with description', async () => {
+    const result = await createCategory(testInput);
+
+    expect(result.name).toEqual('Electronics');
+    expect(result.description).toEqual('Electronic devices and accessories');
+    expect(result.id).toBeDefined();
+    expect(result.created_at).toBeInstanceOf(Date);
+    expect(result.updated_at).toBeInstanceOf(Date);
+  });
+
+  it('should create a category with null description', async () => {
+    const result = await createCategory(testInputNullDesc);
+
+    expect(result.name).toEqual('Books');
+    expect(result.description).toBeNull();
+    expect(result.id).toBeDefined();
+    expect(result.created_at).toBeInstanceOf(Date);
+    expect(result.updated_at).toBeInstanceOf(Date);
+  });
+
+  it('should save category to database', async () => {
+    const result = await createCategory(testInput);
+
+    const categories = await db.select()
+      .from(categoriesTable)
+      .where(eq(categoriesTable.id, result.id))
+      .execute();
+
+    expect(categories).toHaveLength(1);
+    expect(categories[0].name).toEqual('Electronics');
+    expect(categories[0].description).toEqual('Electronic devices and accessories');
+    expect(categories[0].created_at).toBeInstanceOf(Date);
+    expect(categories[0].updated_at).toBeInstanceOf(Date);
+  });
+
+  it('should save category with null description to database', async () => {
+    const result = await createCategory(testInputNullDesc);
+
+    const categories = await db.select()
+      .from(categoriesTable)
+      .where(eq(categoriesTable.id, result.id))
+      .execute();
+
+    expect(categories).toHaveLength(1);
+    expect(categories[0].name).toEqual('Books');
+    expect(categories[0].description).toBeNull();
+  });
+});
